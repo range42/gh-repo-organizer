@@ -8,6 +8,7 @@ A powerful bash script for cloning and auditing all repositories from a GitHub o
 
 - **Mass Repository Cloning**: Clone all accessible repositories from any GitHub organization
 - **Smart Organization**: Automatically separates public and private repositories into dedicated directories
+- **Automatic Updates**: Existing repositories are automatically updated with `git pull`
 - **Authentication Aware**: Works with or without GitHub authentication (limited to public repos when unauthenticated)
 - **Comprehensive Sanity Checks**: Audit repositories for standard files and best practices
 - **Flexible Configuration**: Environment-based configuration for easy customization
@@ -40,10 +41,10 @@ A powerful bash script for cloning and auditing all repositories from a GitHub o
 3. **Run the Script**:
    ```bash
    # Clone all repositories
-   ./clone-repos.sh
+   ./gh_repo_cloner.sh
    
    # Or perform sanity checks
-   ./clone-repos.sh --sanity-check
+   ./gh_repo_cloner.sh --sanity-check
    ```
 
 ## Prerequisites
@@ -88,13 +89,13 @@ NC='\033[0m'  # No Color
 
 ```bash
 # Show help
-./clone-repos.sh --help
+./gh_repo_cloner.sh --help
 
 # Clone all repositories  
-./clone-repos.sh
+./gh_repo_cloner.sh
 
 # Perform sanity checks on repositories
-./clone-repos.sh --sanity-check
+./gh_repo_cloner.sh --sanity-check
 ```
 
 ### Command Line Options
@@ -161,12 +162,15 @@ The script goes beyond just checking for the presence of a LICENSE file - it als
 [INFO] Authenticated as: username
 [INFO] Organization: awesome-org
 [INFO] Found 25 repositories
-[SUCCESS] Cloned awesome-project to ./pub/
-[SUCCESS] Cloned secret-sauce to ./priv/
+[INFO] Repository awesome-project already exists, updating...
+[SUCCESS] ✓ Updated awesome-project in ./pub/
+[SUCCESS] ✓ Cloned new-secret-sauce to ./priv/
+[ERROR] ✗ Failed to update modified-repo (may have local changes or connection issues)
 [SUCCESS] Cloning completed!
 [INFO] Summary:
-[INFO]   Public repositories cloned: 15
-[INFO]   Private repositories cloned: 10
+[INFO]   Public repositories cloned: 12
+[INFO]   Private repositories cloned: 8
+[WARNING]   Failed to clone: 5
 ```
 
 ### Sanity Check Results
@@ -211,7 +215,7 @@ gh auth status
 The script includes robust error handling:
 
 - **SSH to HTTPS Fallback**: Automatically retries failed SSH clones using HTTPS
-- **Existing Directory Detection**: Skips repositories that are already cloned
+- **Existing Repository Updates**: Automatically pulls latest changes for existing repositories
 - **Permission Validation**: Clear error messages for access issues
 - **Rate Limit Awareness**: Warns about API rate limits for unauthenticated users
 
@@ -221,7 +225,7 @@ After running the script, your directory structure will look like:
 
 ```
 project-root/
-├── clone-repos.sh
+├── gh_repo_cloner.sh
 ├── config.env
 ├── pub/
 │   ├── public-repo-1/
@@ -238,13 +242,13 @@ project-root/
 ### Running Tests
 ```bash
 # Test configuration loading
-./clone-repos.sh --help
+./gh_repo_cloner.sh --help
 
 # Test authentication check
 gh auth status
 
 # Dry run sanity checks
-./clone-repos.sh --sanity-check
+./gh_repo_cloner.sh --sanity-check
 ```
 
 ### Contributing
@@ -265,6 +269,8 @@ gh auth status
 
 ### For Repository Management
 - **Batch Updates**: Use the script to identify repositories needing standardization
+- **Regular Sync**: Run the script regularly to keep local copies up to date
+- **Clean Working Directory**: Ensure local repositories have no uncommitted changes before running updates
 - **Onboarding**: Include sanity check results in new developer onboarding
 - **Compliance**: Track organization-wide compliance with repository standards
 
@@ -295,6 +301,12 @@ gh auth status
 **"Rate limit exceeded"**
 - Authenticate with GitHub CLI: `gh auth login`
 - Wait for rate limit reset (shown in error message)
+
+**"Failed to update repository"**
+- Repository may have uncommitted local changes
+- Check for merge conflicts: `cd repo_directory && git status`
+- Reset local changes if safe: `git reset --hard origin/main`
+- May indicate network connectivity issues
 
 **"LICENSE shows warning (⚠) symbol"**
 - LICENSE file contains template placeholders like `<year>` or `<name of author>`
