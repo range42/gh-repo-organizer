@@ -5,6 +5,9 @@
 
 set -e  # Exit on any error
 
+# Global variables
+SANITY_CHECK=false
+
 # Configuration
 CONFIG_FILE="config.env"
 
@@ -23,6 +26,46 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Function to show usage
+show_usage() {
+    echo "GitHub Organization Repository Cloner"
+    echo ""
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -s, --sanity-check    Perform sanity checks on repositories for common files"
+    echo "  -h, --help           Show this help message"
+    echo ""
+    echo "Sanity checks include:"
+    echo "  - LICENSE (any variant)"
+    echo "  - CHANGELOG/CHANGELOG.md"
+    echo "  - CONTRIBUTING/CONTRIBUTING.md"
+    echo "  - CI/CD configuration files"
+    echo "  - README.md"
+    echo "  - .gitignore"
+}
+
+# Function to parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -s|--sanity-check)
+                SANITY_CHECK=true
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
 }
 
 # Function to check if gh CLI is installed
@@ -257,6 +300,9 @@ clone_repositories_fixed() {
 
 # Main execution
 main() {
+    # Parse command line arguments first
+    parse_args "$@"
+    
     print_status "GitHub Organization Repository Cloner"
     print_status "======================================"
     
@@ -269,16 +315,180 @@ main() {
     # Check authentication
     check_auth
     
-    # Create directories
-    create_directories
+    if [[ "$SANITY_CHECK" == true ]]; then
+        # Sanity check mode
+        print_status "Running in sanity check mode"
+        ensure_repos_cloned
+        perform_sanity_checks
+    else
+        # Normal cloning mode
+        # Create directories
+        create_directories
+        
+        # Get repository list
+        get_repo_list
+        
+        # Clone repositories
+        clone_repositories_fixed
+        
+        print_success "All done! Check the $PUB_DIR and $PRIV_DIR directories."
+        print_status "Tip: Run with --sanity-check to verify repository standards"
+    fi
+}
+
+# Function to check for common files in a repository
+check_repo_files() {
+    local repo_path="$1"
+    local repo_name="$2"
+    local results=""
     
-    # Get repository list
-    get_repo_list
+    # Files to check for (case-insensitive)
+    local files_to_check=(
+        "LICENSE:LICENSE,LICENSE.txt,LICENSE.md,license,license.txt,license.md"
+        "CHANGELOG:CHANGELOG,CHANGELOG.md,CHANGELOG.txt,changelog,changelog.md,changelog.txt,HISTORY.md,RELEASES.md"
+        "CONTRIBUTING:CONTRIBUTING,CONTRIBUTING.md,CONTRIBUTING.txt,contributing,contributing.md,contributing.txt"
+        "README:README.md,README.txt,README,readme.md,readme.txt,readme"
+        "GITIGNORE:.gitignore"
+    )
     
-    # Clone repositories
-    clone_repositories_fixed
+    # CI/CD files to check for
+    local cicd_files=(
+        ".github/workflows"
+        ".gitlab-ci.yml"
+        ".travis.yml"
+        "Jenkinsfile"
+        ".circleci"
+        "azure-pipelines.yml"
+        ".buildkite"
+        "bitbucket-pipelines.yml"
+    )
     
-    print_success "All done! Check the $PUB_DIR and $PRIV_DIR directories."
+    print_status "Checking $repo_name..."
+    
+    # Check for standard files
+    for file_check in "${files_to_check[@]}"; do
+        IFS=':' read -r file_type file_variants <<< "$file_check"
+        IFS=',' read -ra variants <<< "$file_variants"
+        
+        found=false
+        for variant in "${variants[@]}"; do
+            if [[ -e "$repo_path/$variant" ]]; then
+                results+="✓ $file_type "
+                found=true
+                break
+            fi
+        done
+        
+        if [[ "$found" == false ]]; then
+            results+="✗ $file_type "
+        fi
+    done
+    
+    # Check for CI/CD files
+    cicd_found=false
+    for cicd_file in "${cicd_files[@]}"; do
+        if [[ -e "$repo_path/$cicd_file" ]]; then
+            cicd_found=true
+            break
+        fi
+    done
+    
+    if [[ "$cicd_found" == true ]]; then
+        results+="✓ CI/CD "
+    else
+        results+="✗ CI/CD "
+    fi
+    
+    echo "$results"
+}
+
+# Function to perform sanity checks on all repositories
+perform_sanity_checks() {
+    print_status "Performing sanity checks on repositories..."
+    print_status "========================================"
+    
+    # Create arrays to store results
+    declare -A sanity_results
+    local total_repos=0
+    local perfect_repos=0
+    
+    # Check public repositories
+    if [[ -d "$PUB_DIR" ]]; then
+        print_status "Checking public repositories in $PUB_DIR:"
+        for repo_dir in "$PUB_DIR"/*; do
+            if [[ -d "$repo_dir" ]]; then
+                repo_name=$(basename "$repo_dir")
+                result=$(check_repo_files "$repo_dir" "$repo_name")
+                sanity_results["$repo_name"]="$result"
+                echo "  $repo_name: $result"
+                ((total_repos++))
+                
+                # Check if all checks passed (no ✗ symbols)
+                if [[ "$result" != *"✗"* ]]; then
+                    ((perfect_repos++))
+                fi
+            fi
+        done
+    fi
+    
+    # Check private repositories
+    if [[ -d "$PRIV_DIR" ]]; then
+        print_status "Checking private repositories in $PRIV_DIR:"
+        for repo_dir in "$PRIV_DIR"/*; do
+            if [[ -d "$repo_dir" ]]; then
+                repo_name=$(basename "$repo_dir")
+                result=$(check_repo_files "$repo_dir" "$repo_name")
+                sanity_results["$repo_name"]="$result"
+                echo "  $repo_name: $result"
+                ((total_repos++))
+                
+                # Check if all checks passed (no ✗ symbols)
+                if [[ "$result" != *"✗"* ]]; then
+                    ((perfect_repos++))
+                fi
+            fi
+        done
+    fi
+    
+    # Print summary
+    print_status "Sanity Check Summary:"
+    print_status "====================="
+    print_status "Total repositories checked: $total_repos"
+    print_success "Repositories with all files: $perfect_repos"
+    
+    if [[ $perfect_repos -lt $total_repos ]]; then
+        missing_count=$((total_repos - perfect_repos))
+        print_warning "Repositories missing files: $missing_count"
+        
+        print_status "Legend:"
+        print_status "  ✓ = File present"
+        print_status "  ✗ = File missing"
+    fi
+}
+
+# Function to ensure repositories are cloned before sanity check
+ensure_repos_cloned() {
+    local need_cloning=false
+    
+    # Check if we have any repositories cloned
+    if [[ ! -d "$PUB_DIR" ]] && [[ ! -d "$PRIV_DIR" ]]; then
+        need_cloning=true
+    else
+        # Check if directories exist but are empty
+        if [[ -d "$PUB_DIR" ]] && [[ -z "$(ls -A "$PUB_DIR" 2>/dev/null)" ]]; then
+            if [[ -d "$PRIV_DIR" ]] && [[ -z "$(ls -A "$PRIV_DIR" 2>/dev/null)" ]]; then
+                need_cloning=true
+            fi
+        fi
+    fi
+    
+    if [[ "$need_cloning" == true ]]; then
+        print_status "No repositories found locally. Cloning first..."
+        get_repo_list
+        clone_repositories_fixed
+    else
+        print_status "Using existing repository clones for sanity check"
+    fi
 }
 
 # Run the script
