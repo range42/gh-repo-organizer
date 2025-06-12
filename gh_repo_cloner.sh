@@ -6,16 +6,7 @@
 set -e  # Exit on any error
 
 # Configuration
-CONFIG_FILE="config.txt"
-PUB_DIR="./pub"
-PRIV_DIR="./priv"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+CONFIG_FILE="config.env"
 
 # Function to print colored output
 print_status() {
@@ -47,19 +38,44 @@ check_gh_cli() {
 read_config() {
     if [[ ! -f "$CONFIG_FILE" ]]; then
         print_error "Config file '$CONFIG_FILE' not found."
-        print_error "Please create a config file with the organization name."
-        print_error "Example: echo 'microsoft' > $CONFIG_FILE"
+        print_error "Please create a config file with the required variables."
+        print_error "Example config.env content:"
+        print_error 'ORG="your-org-name"'
+        print_error 'PUB_DIR="./pub"'
+        print_error 'PRIV_DIR="./priv"'
+        print_error 'RED="\033[0;31m"'
+        print_error 'GREEN="\033[0;32m"'
+        print_error 'YELLOW="\033[1;33m"'
+        print_error 'BLUE="\033[0;34m"'
+        print_error 'NC="\033[0m"'
         exit 1
     fi
     
-    ORG_NAME=$(cat "$CONFIG_FILE" | tr -d '[:space:]')
-    
-    if [[ -z "$ORG_NAME" ]]; then
-        print_error "Config file is empty. Please add the organization name."
+    # Source the config file
+    if ! source "$CONFIG_FILE"; then
+        print_error "Failed to source config file. Please check syntax."
         exit 1
     fi
     
-    print_status "Organization: $ORG_NAME"
+    # Validate required variables
+    if [[ -z "$ORG" ]]; then
+        print_error "ORG variable not set in config file."
+        print_error "Please add: ORG=\"your-organization-name\""
+        exit 1
+    fi
+    
+    # Set default values if not provided
+    PUB_DIR=${PUB_DIR:-"./pub"}
+    PRIV_DIR=${PRIV_DIR:-"./priv"}
+    RED=${RED:-'\033[0;31m'}
+    GREEN=${GREEN:-'\033[0;32m'}
+    YELLOW=${YELLOW:-'\033[1;33m'}
+    BLUE=${BLUE:-'\033[0;34m'}
+    NC=${NC:-'\033[0m'}
+    
+    print_status "Organization: $ORG"
+    print_status "Public directory: $PUB_DIR"
+    print_status "Private directory: $PRIV_DIR"
 }
 
 # Function to check authentication status
@@ -89,11 +105,11 @@ create_directories() {
 
 # Function to get repository list
 get_repo_list() {
-    print_status "Fetching repository list for $ORG_NAME..."
+    print_status "Fetching repository list for $ORG..."
     
     # Try to get repos with visibility info
-    if ! REPO_JSON=$(gh repo list "$ORG_NAME" --limit 1000 --json name,isPrivate,sshUrl,visibility 2>/dev/null); then
-        print_error "Failed to fetch repositories for organization '$ORG_NAME'"
+    if ! REPO_JSON=$(gh repo list "$ORG" --limit 1000 --json name,isPrivate,sshUrl,visibility 2>/dev/null); then
+        print_error "Failed to fetch repositories for organization '$ORG'"
         print_error "Please check:"
         print_error "1. Organization name is correct"
         print_error "2. Organization exists and is accessible"
@@ -105,7 +121,7 @@ get_repo_list() {
     REPO_COUNT=$(echo "$REPO_JSON" | jq length)
     
     if [[ "$REPO_COUNT" -eq 0 ]]; then
-        print_warning "No repositories found for organization '$ORG_NAME'"
+        print_warning "No repositories found for organization '$ORG'"
         print_warning "This could mean:"
         print_warning "1. Organization has no repositories"
         print_warning "2. All repositories are private and you lack access"
@@ -212,7 +228,7 @@ clone_repositories_fixed() {
             ((FAILED_COUNT++))
             
             # Try HTTPS if SSH fails
-            https_url="https://github.com/$ORG_NAME/$repo_name.git"
+            https_url="https://github.com/$ORG/$repo_name.git"
             print_status "Retrying with HTTPS: $repo_name"
             if git clone "$https_url" "$target_dir/$repo_name" &> /dev/null; then
                 print_success "✓ Cloned $repo_name to $target_dir/ (via HTTPS)"
