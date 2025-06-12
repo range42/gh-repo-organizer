@@ -213,7 +213,20 @@ clone_repositories() {
         
         # Check if directory already exists
         if [[ -d "$target_dir/$repo_name" ]]; then
-            print_warning "Directory $target_dir/$repo_name already exists, skipping..."
+            print_status "Repository $repo_name already exists, updating..."
+            
+            # Change to repo directory and pull latest changes
+            if (cd "$target_dir/$repo_name" && git pull &> /dev/null); then
+                print_success "✓ Updated $repo_name in $target_dir/"
+                if [[ "$is_private" == "true" ]]; then
+                    ((PRIVATE_COUNT++))
+                else
+                    ((PUBLIC_COUNT++))
+                fi
+            else
+                print_error "✗ Failed to update $repo_name (may have local changes or connection issues)"
+                ((FAILED_COUNT++))
+            fi
             continue
         fi
         
@@ -539,8 +552,7 @@ perform_sanity_checks() {
     print_status "Performing sanity checks on repositories..."
     print_status "========================================"
     
-    # Create arrays to store results
-    declare -A sanity_results
+    # Track results
     local total_repos=0
     local perfect_repos=0
     
@@ -551,7 +563,6 @@ perform_sanity_checks() {
             if [[ -d "$repo_dir" ]]; then
                 repo_name=$(basename "$repo_dir")
                 result=$(check_repo_files "$repo_dir" "$repo_name")
-                sanity_results["$repo_name"]="$result"
                 echo "  $repo_name: $result"
                 ((total_repos++))
                 
@@ -570,7 +581,6 @@ perform_sanity_checks() {
             if [[ -d "$repo_dir" ]]; then
                 repo_name=$(basename "$repo_dir")
                 result=$(check_repo_files "$repo_dir" "$repo_name")
-                sanity_results["$repo_name"]="$result"
                 echo "  $repo_name: $result"
                 ((total_repos++))
                 
