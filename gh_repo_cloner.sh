@@ -42,9 +42,15 @@ show_usage() {
     echo "  - LICENSE (any variant)"
     echo "  - CHANGELOG/CHANGELOG.md"
     echo "  - CONTRIBUTING/CONTRIBUTING.md"
-    echo "  - CI/CD configuration files"
     echo "  - README.md"
     echo "  - .gitignore"
+    echo "  - SECURITY.md"
+    echo "  - CODE_OF_CONDUCT.md"
+    echo "  - .editorconfig"
+    echo "  - docs/ directory"
+    echo "  - .github/ISSUE_TEMPLATE/ directory"
+    echo "  - .github/PULL_REQUEST_TEMPLATE.md"
+    echo "  - CI/CD configuration files"
 }
 
 # Function to parse command line arguments
@@ -349,6 +355,20 @@ check_repo_files() {
         "CONTRIBUTING:CONTRIBUTING,CONTRIBUTING.md,CONTRIBUTING.txt,contributing,contributing.md,contributing.txt"
         "README:README.md,README.txt,README,readme.md,readme.txt,readme"
         "GITIGNORE:.gitignore"
+        "SECURITY:SECURITY.md,SECURITY.txt,SECURITY,security.md,security.txt,security"
+        "CODE_OF_CONDUCT:CODE_OF_CONDUCT.md,CODE_OF_CONDUCT.txt,CODE_OF_CONDUCT,code_of_conduct.md,code_of_conduct.txt,code_of_conduct"
+        "EDITORCONFIG:.editorconfig"
+    )
+    
+    # Directory-based checks
+    local dir_checks=(
+        "DOCS:docs,Docs,DOCS,documentation,Documentation"
+        "ISSUE_TEMPLATES:.github/ISSUE_TEMPLATE,.github/issue_template"
+    )
+    
+    # File-based GitHub checks
+    local github_files=(
+        "PR_TEMPLATE:.github/PULL_REQUEST_TEMPLATE.md,.github/pull_request_template.md,.github/PULL_REQUEST_TEMPLATE,.github/pull_request_template"
     )
     
     # CI/CD files to check for
@@ -381,6 +401,44 @@ check_repo_files() {
         
         if [[ "$found" == false ]]; then
             results+="✗ $file_type "
+        fi
+    done
+    
+    # Check for directories
+    for dir_check in "${dir_checks[@]}"; do
+        IFS=':' read -r dir_type dir_variants <<< "$dir_check"
+        IFS=',' read -ra variants <<< "$dir_variants"
+        
+        found=false
+        for variant in "${variants[@]}"; do
+            if [[ -d "$repo_path/$variant" ]]; then
+                results+="✓ $dir_type "
+                found=true
+                break
+            fi
+        done
+        
+        if [[ "$found" == false ]]; then
+            results+="✗ $dir_type "
+        fi
+    done
+    
+    # Check for GitHub-specific files
+    for github_check in "${github_files[@]}"; do
+        IFS=':' read -r github_type github_variants <<< "$github_check"
+        IFS=',' read -ra variants <<< "$github_variants"
+        
+        found=false
+        for variant in "${variants[@]}"; do
+            if [[ -e "$repo_path/$variant" ]]; then
+                results+="✓ $github_type "
+                found=true
+                break
+            fi
+        done
+        
+        if [[ "$found" == false ]]; then
+            results+="✗ $github_type "
         fi
     done
     
@@ -461,8 +519,14 @@ perform_sanity_checks() {
         print_warning "Repositories missing files: $missing_count"
         
         print_status "Legend:"
-        print_status "  ✓ = File present"
-        print_status "  ✗ = File missing"
+        print_status "  ✓ = File/directory present"
+        print_status "  ✗ = File/directory missing"
+        print_status ""
+        print_status "Checks performed:"
+        print_status "  LICENSE, CHANGELOG, CONTRIBUTING, README, .gitignore"
+        print_status "  SECURITY, CODE_OF_CONDUCT, .editorconfig"
+        print_status "  docs/, .github/ISSUE_TEMPLATE/, .github/PULL_REQUEST_TEMPLATE.md"
+        print_status "  CI/CD configuration files"
     fi
 }
 
