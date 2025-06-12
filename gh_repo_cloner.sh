@@ -39,7 +39,7 @@ show_usage() {
     echo "  -h, --help           Show this help message"
     echo ""
     echo "Sanity checks include:"
-    echo "  - LICENSE (any variant)"
+    echo "  - LICENSE (with content validation for template placeholders)"
     echo "  - CHANGELOG/CHANGELOG.md"
     echo "  - CONTRIBUTING/CONTRIBUTING.md"
     echo "  - README.md"
@@ -342,15 +342,75 @@ main() {
     fi
 }
 
+# Function to check if LICENSE file is properly filled out
+check_license_content() {
+    local repo_path="$1"
+    local license_file=""
+    
+    # Find the LICENSE file (case-insensitive)
+    local license_variants=("LICENSE" "LICENSE.txt" "LICENSE.md" "license" "license.txt" "license.md")
+    
+    for variant in "${license_variants[@]}"; do
+        if [[ -e "$repo_path/$variant" ]]; then
+            license_file="$repo_path/$variant"
+            break
+        fi
+    done
+    
+    if [[ -z "$license_file" ]]; then
+        echo "MISSING"
+        return
+    fi
+    
+    # Read the license file content
+    local license_content
+    if ! license_content=$(cat "$license_file" 2>/dev/null); then
+        echo "PRESENT"  # File exists but can't read it
+        return
+    fi
+    
+    # Check for common template placeholders (case-insensitive)
+    local placeholders=(
+        "<year>"
+        "<name of author>"
+        "<name of copyright owner>"
+        "<copyright holders>"
+        "<author>"
+        "<owner>"
+        "\[year\]"
+        "\[name\]"
+        "\[author\]"
+        "YYYY"
+        "COPYRIGHT_HOLDER"
+        "AUTHOR_NAME"
+        "YOUR_NAME"
+        "YOUR NAME"
+    )
+    
+    # Convert to lowercase for case-insensitive matching
+    local content_lower=$(echo "$license_content" | tr '[:upper:]' '[:lower:]')
+    
+    # Check for placeholders
+    for placeholder in "${placeholders[@]}"; do
+        # Convert placeholder to lowercase for comparison
+        local placeholder_lower=$(echo "$placeholder" | tr '[:upper:]' '[:lower:]')
+        if echo "$content_lower" | grep -q "$placeholder_lower"; then
+            echo "TEMPLATE"
+            return
+        fi
+    done
+    
+    echo "COMPLETE"
+}
+
 # Function to check for common files in a repository
 check_repo_files() {
     local repo_path="$1"
     local repo_name="$2"
     local results=""
     
-    # Files to check for (case-insensitive)
+    # Files to check for (case-insensitive) - LICENSE handled separately
     local files_to_check=(
-        "LICENSE:LICENSE,LICENSE.txt,LICENSE.md,license,license.txt,license.md"
         "CHANGELOG:CHANGELOG,CHANGELOG.md,CHANGELOG.txt,changelog,changelog.md,changelog.txt,HISTORY.md,RELEASES.md"
         "CONTRIBUTING:CONTRIBUTING,CONTRIBUTING.md,CONTRIBUTING.txt,contributing,contributing.md,contributing.txt"
         "README:README.md,README.txt,README,readme.md,readme.txt,readme"
@@ -384,6 +444,20 @@ check_repo_files() {
     )
     
     print_status "Checking $repo_name..."
+    
+    # Check LICENSE file specifically (with content validation)
+    license_status=$(check_license_content "$repo_path")
+    case "$license_status" in
+        "MISSING")
+            results+="✗ LICENSE "
+            ;;
+        "TEMPLATE") 
+            results+="⚠ LICENSE "
+            ;;
+        "PRESENT"|"COMPLETE")
+            results+="✓ LICENSE "
+            ;;
+    esac
     
     # Check for standard files
     for file_check in "${files_to_check[@]}"; do
@@ -481,8 +555,8 @@ perform_sanity_checks() {
                 echo "  $repo_name: $result"
                 ((total_repos++))
                 
-                # Check if all checks passed (no ✗ symbols)
-                if [[ "$result" != *"✗"* ]]; then
+                # Check if all checks passed (no ✗ or ⚠ symbols)
+                if [[ "$result" != *"✗"* ]] && [[ "$result" != *"⚠"* ]]; then
                     ((perfect_repos++))
                 fi
             fi
@@ -500,8 +574,8 @@ perform_sanity_checks() {
                 echo "  $repo_name: $result"
                 ((total_repos++))
                 
-                # Check if all checks passed (no ✗ symbols)
-                if [[ "$result" != *"✗"* ]]; then
+                # Check if all checks passed (no ✗ or ⚠ symbols)
+                if [[ "$result" != *"✗"* ]] && [[ "$result" != *"⚠"* ]]; then
                     ((perfect_repos++))
                 fi
             fi
@@ -519,11 +593,12 @@ perform_sanity_checks() {
         print_warning "Repositories missing files: $missing_count"
         
         print_status "Legend:"
-        print_status "  ✓ = File/directory present"
+        print_status "  ✓ = File/directory present and complete"
         print_status "  ✗ = File/directory missing"
+        print_status "  ⚠ = LICENSE present but contains template placeholders"
         print_status ""
         print_status "Checks performed:"
-        print_status "  LICENSE, CHANGELOG, CONTRIBUTING, README, .gitignore"
+        print_status "  LICENSE (with content validation), CHANGELOG, CONTRIBUTING, README, .gitignore"
         print_status "  SECURITY, CODE_OF_CONDUCT, .editorconfig"
         print_status "  docs/, .github/ISSUE_TEMPLATE/, .github/PULL_REQUEST_TEMPLATE.md"
         print_status "  CI/CD configuration files"
