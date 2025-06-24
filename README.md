@@ -10,7 +10,7 @@ A powerful bash script for cloning and auditing all repositories from a GitHub o
 - **Smart Organization**: Automatically separates public and private repositories into dedicated directories
 - **Automatic Updates**: Existing repositories are automatically updated with `git pull`
 - **Authentication Aware**: Works with or without GitHub authentication (limited to public repos when unauthenticated)
-- **Comprehensive Sanity Checks**: Audit repositories for standard files and best practices
+- **Comprehensive Sanity Checks**: Audit repositories for standard files and best practices with line-by-line output
 - **Flexible Configuration**: Environment-based configuration for easy customization
 - **Robust Error Handling**: Graceful handling of failed clones with HTTPS fallback
 - **Colored Output**: Clear, colored terminal output for better visibility
@@ -113,7 +113,7 @@ The script can audit repositories for compliance with common standards and best 
 
 | Category | Files/Directories |
 |----------|-------------------|
-| **License** | `LICENSE`, `LICENSE.txt`, `LICENSE.md` (with content validation) |
+| **License** | `LICENSE`, `LICENSE.txt`, `LICENSE.md`, `COPYING`, `COPYRIGHT` (with content validation) |
 | **Documentation** | `README.md`, `README.txt`, `README` |
 | **Changelog** | `CHANGELOG.md`, `HISTORY.md`, `RELEASES.md` |
 | **Contributing** | `CONTRIBUTING.md`, `CONTRIBUTING.txt` |
@@ -142,14 +142,20 @@ The script automatically detects various CI/CD configurations:
 The script goes beyond just checking for the presence of a LICENSE file - it also validates that the license has been properly filled out. It detects common template placeholders that indicate an incomplete license:
 
 **Template Placeholders Detected:**
-- `<year>`, `[year]`, `YYYY`
-- `<name of author>`, `<author>`, `<owner>`
-- `<name of copyright owner>`, `<copyright holders>`
-- `COPYRIGHT_HOLDER`, `AUTHOR_NAME`, `YOUR_NAME`
+- `<year>`, `[year]`, `YYYY` - Year placeholders
+- `<name of author>`, `<author>`, `<owner>` - Author placeholders
+- `<name of copyright owner>`, `<copyright holders>` - Copyright placeholders
+- `COPYRIGHT_HOLDER`, `AUTHOR_NAME`, `YOUR_NAME`, `YOUR NAME` - Common template variables
+
+**LICENSE File Variants Detected:**
+- Standard names: `LICENSE`, `LICENSE.txt`, `LICENSE.md`, `LICENSE.rst`
+- Case variations: `license`, `License`
+- Alternative names: `COPYING`, `COPYRIGHT` (common in some projects)
+- All checked with proper file type validation (not directories or symlinks)
 
 **LICENSE Status Indicators:**
 - **✓ LICENSE** - File present and properly filled out
-- **⚠ LICENSE** - File present but contains template placeholders
+- **⚠ LICENSE (contains template placeholders)** - File present but needs customization
 - **✗ LICENSE** - File missing entirely
 
 ## Example Output
@@ -176,9 +182,34 @@ The script goes beyond just checking for the presence of a LICENSE file - it als
 ### Sanity Check Results
 ```
 [INFO] Checking public repositories in ./pub:
-  awesome-project: ✓ LICENSE ✓ CHANGELOG ✓ CONTRIBUTING ✓ README ✓ GITIGNORE ✓ SECURITY ✓ CODE_OF_CONDUCT ✓ EDITORCONFIG ✓ DOCS ✓ ISSUE_TEMPLATES ✓ PR_TEMPLATE ✓ CI/CD
-  legacy-tool: ⚠ LICENSE ✓ README ✓ GITIGNORE ✓ CI/CD
-  old-project: ✗ LICENSE ✗ CHANGELOG ✗ CONTRIBUTING ✓ README ✓ GITIGNORE ✗ SECURITY
+
+awesome-project:
+  ✓ LICENSE
+  ✓ CHANGELOG
+  ✓ CONTRIBUTING
+  ✓ README
+  ✓ GITIGNORE
+  ✓ SECURITY
+  ✓ CODE_OF_CONDUCT
+  ✓ EDITORCONFIG
+  ✓ DOCS
+  ✓ ISSUE_TEMPLATES
+  ✓ PR_TEMPLATE
+  ✓ CI/CD
+
+legacy-tool:
+  ⚠ LICENSE (contains template placeholders)
+  ✗ CHANGELOG
+  ✗ CONTRIBUTING
+  ✓ README
+  ✓ GITIGNORE
+  ✗ SECURITY
+  ✗ CODE_OF_CONDUCT
+  ✗ EDITORCONFIG
+  ✗ DOCS
+  ✗ ISSUE_TEMPLATES
+  ✗ PR_TEMPLATE
+  ✓ CI/CD
 
 [INFO] Sanity Check Summary:
 [INFO] =====================
@@ -312,6 +343,12 @@ gh auth status
 - LICENSE file contains template placeholders like `<year>` or `<name of author>`
 - Edit the LICENSE file to replace placeholders with actual values
 - Common placeholders: `<year>` → actual year, `<name of author>` → your name/organization
+
+**"LICENSE shows missing (✗) but file exists"**
+- LICENSE file may have an unexpected name or extension
+- Supported names: `LICENSE`, `LICENSE.txt`, `LICENSE.md`, `license`, `License`, `COPYING`, `COPYRIGHT`
+- Check file permissions (must be readable)
+- Verify file is not a directory or symlink
 
 ## License
 

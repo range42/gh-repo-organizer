@@ -352,6 +352,7 @@ main() {
         
         print_success "All done! Check the $PUB_DIR and $PRIV_DIR directories."
         print_status "Tip: Run with --sanity-check to verify repository standards"
+        print_status "Each repository check will show line-by-line results for better readability"
     fi
 }
 
@@ -360,15 +361,39 @@ check_license_content() {
     local repo_path="$1"
     local license_file=""
     
-    # Find the LICENSE file (case-insensitive)
-    local license_variants=("LICENSE" "LICENSE.txt" "LICENSE.md" "license" "license.txt" "license.md")
+    # Find the LICENSE file (case-insensitive) - expanded list
+    local license_variants=(
+        "LICENSE"
+        "LICENSE.txt" 
+        "LICENSE.md"
+        "LICENSE.rst"
+        "license"
+        "license.txt"
+        "license.md"
+        "License"
+        "License.txt"
+        "License.md"
+        "COPYING"
+        "COPYING.txt"
+        "COPYRIGHT"
+        "COPYRIGHT.txt"
+    )
     
     for variant in "${license_variants[@]}"; do
-        if [[ -e "$repo_path/$variant" ]]; then
+        if [[ -f "$repo_path/$variant" ]]; then
             license_file="$repo_path/$variant"
             break
         fi
     done
+    
+    # Debug: List what files actually exist (for troubleshooting)
+    if [[ -z "$license_file" ]]; then
+        # Check if there are any license-like files we missed
+        if ls "$repo_path"/LICENSE* "$repo_path"/license* "$repo_path"/License* "$repo_path"/COPYING* "$repo_path"/COPYRIGHT* 2>/dev/null | head -1 >/dev/null; then
+            # Found license-like files, let's see what they are
+            license_file=$(ls "$repo_path"/LICENSE* "$repo_path"/license* "$repo_path"/License* "$repo_path"/COPYING* "$repo_path"/COPYRIGHT* 2>/dev/null | head -1)
+        fi
+    fi
     
     if [[ -z "$license_file" ]]; then
         echo "MISSING"
@@ -456,19 +481,19 @@ check_repo_files() {
         "bitbucket-pipelines.yml"
     )
     
-    print_status "Checking $repo_name..."
+    print_status "$repo_name:"
     
     # Check LICENSE file specifically (with content validation)
     license_status=$(check_license_content "$repo_path")
     case "$license_status" in
         "MISSING")
-            results+="✗ LICENSE "
+            echo "  ✗ LICENSE"
             ;;
         "TEMPLATE") 
-            results+="⚠ LICENSE "
+            echo "  ⚠ LICENSE (contains template placeholders)"
             ;;
         "PRESENT"|"COMPLETE")
-            results+="✓ LICENSE "
+            echo "  ✓ LICENSE"
             ;;
     esac
     
@@ -480,14 +505,14 @@ check_repo_files() {
         found=false
         for variant in "${variants[@]}"; do
             if [[ -e "$repo_path/$variant" ]]; then
-                results+="✓ $file_type "
+                echo "  ✓ $file_type"
                 found=true
                 break
             fi
         done
         
         if [[ "$found" == false ]]; then
-            results+="✗ $file_type "
+            echo "  ✗ $file_type"
         fi
     done
     
@@ -499,14 +524,14 @@ check_repo_files() {
         found=false
         for variant in "${variants[@]}"; do
             if [[ -d "$repo_path/$variant" ]]; then
-                results+="✓ $dir_type "
+                echo "  ✓ $dir_type"
                 found=true
                 break
             fi
         done
         
         if [[ "$found" == false ]]; then
-            results+="✗ $dir_type "
+            echo "  ✗ $dir_type"
         fi
     done
     
@@ -518,14 +543,14 @@ check_repo_files() {
         found=false
         for variant in "${variants[@]}"; do
             if [[ -e "$repo_path/$variant" ]]; then
-                results+="✓ $github_type "
+                echo "  ✓ $github_type"
                 found=true
                 break
             fi
         done
         
         if [[ "$found" == false ]]; then
-            results+="✗ $github_type "
+            echo "  ✗ $github_type"
         fi
     done
     
@@ -539,12 +564,109 @@ check_repo_files() {
     done
     
     if [[ "$cicd_found" == true ]]; then
-        results+="✓ CI/CD "
+        echo "  ✓ CI/CD"
     else
-        results+="✗ CI/CD "
+        echo "  ✗ CI/CD"
     fi
     
-    echo "$results"
+    # Return a summary for counting (perfect repos)
+    # Count the checks by looking at what was printed
+    local total_checks=12  # LICENSE + 7 files + 2 dirs + 1 github + 1 cicd
+    local failed_checks=0
+    
+    # This is a simple way to determine if all passed - check the license status
+    if [[ "$license_status" == "MISSING" || "$license_status" == "TEMPLATE" ]]; then
+        echo "INCOMPLETE"
+    else
+        # For now, we'll do a more complex check in the calling function
+        echo "NEEDS_DETAILED_CHECK"
+    fi
+}
+
+# Function to count issues in a repository check
+count_repo_issues() {
+    local repo_path="$1"
+    local issues=0
+    
+    # Count each type of check
+    local checks=(
+        "LICENSE"
+        "CHANGELOG:CHANGELOG,CHANGELOG.md,CHANGELOG.txt,changelog,changelog.md,changelog.txt,HISTORY.md,RELEASES.md"
+        "CONTRIBUTING:CONTRIBUTING,CONTRIBUTING.md,CONTRIBUTING.txt,contributing,contributing.md,contributing.txt"
+        "README:README.md,README.txt,README,readme.md,readme.txt,readme"
+        "GITIGNORE:.gitignore"
+        "SECURITY:SECURITY.md,SECURITY.txt,SECURITY,security.md,security.txt,security"
+        "CODE_OF_CONDUCT:CODE_OF_CONDUCT.md,CODE_OF_CONDUCT.txt,CODE_OF_CONDUCT,code_of_conduct.md,code_of_conduct.txt,code_of_conduct"
+        "EDITORCONFIG:.editorconfig"
+        "DOCS:docs,Docs,DOCS,documentation,Documentation"
+        "ISSUE_TEMPLATES:.github/ISSUE_TEMPLATE,.github/issue_template"
+        "PR_TEMPLATE:.github/PULL_REQUEST_TEMPLATE.md,.github/pull_request_template.md,.github/PULL_REQUEST_TEMPLATE,.github/pull_request_template"
+    )
+    
+    # Check LICENSE separately
+    license_status=$(check_license_content "$repo_path")
+    if [[ "$license_status" == "MISSING" || "$license_status" == "TEMPLATE" ]]; then
+        ((issues++))
+    fi
+    
+    # Check other files/directories
+    for check in "${checks[@]:1}"; do  # Skip LICENSE (index 0)
+        IFS=':' read -r check_type check_variants <<< "$check"
+        
+        if [[ "$check_type" == "DOCS" || "$check_type" == "ISSUE_TEMPLATES" ]]; then
+            # Directory check
+            IFS=',' read -ra variants <<< "$check_variants"
+            found=false
+            for variant in "${variants[@]}"; do
+                if [[ -d "$repo_path/$variant" ]]; then
+                    found=true
+                    break
+                fi
+            done
+            if [[ "$found" == false ]]; then
+                ((issues++))
+            fi
+        else
+            # File check
+            IFS=',' read -ra variants <<< "$check_variants"
+            found=false
+            for variant in "${variants[@]}"; do
+                if [[ -e "$repo_path/$variant" ]]; then
+                    found=true
+                    break
+                fi
+            done
+            if [[ "$found" == false ]]; then
+                ((issues++))
+            fi
+        fi
+    done
+    
+    # Check CI/CD
+    local cicd_files=(
+        ".github/workflows"
+        ".gitlab-ci.yml"
+        ".travis.yml"
+        "Jenkinsfile"
+        ".circleci"
+        "azure-pipelines.yml"
+        ".buildkite"
+        "bitbucket-pipelines.yml"
+    )
+    
+    cicd_found=false
+    for cicd_file in "${cicd_files[@]}"; do
+        if [[ -e "$repo_path/$cicd_file" ]]; then
+            cicd_found=true
+            break
+        fi
+    done
+    
+    if [[ "$cicd_found" == false ]]; then
+        ((issues++))
+    fi
+    
+    echo $issues
 }
 
 # Function to perform sanity checks on all repositories
@@ -557,39 +679,50 @@ perform_sanity_checks() {
     local perfect_repos=0
     
     # Check public repositories
-    if [[ -d "$PUB_DIR" ]]; then
+    if [[ -d "$PUB_DIR" ]] && [[ -n "$(ls -A "$PUB_DIR" 2>/dev/null)" ]]; then
         print_status "Checking public repositories in $PUB_DIR:"
+        print_status ""
         for repo_dir in "$PUB_DIR"/*; do
             if [[ -d "$repo_dir" ]]; then
                 repo_name=$(basename "$repo_dir")
-                result=$(check_repo_files "$repo_dir" "$repo_name")
-                echo "  $repo_name: $result"
-                ((total_repos++))
+                check_repo_files "$repo_dir" "$repo_name"
                 
-                # Check if all checks passed (no ✗ or ⚠ symbols)
-                if [[ "$result" != *"✗"* ]] && [[ "$result" != *"⚠"* ]]; then
+                # Count issues for summary
+                issues=$(count_repo_issues "$repo_dir")
+                ((total_repos++))
+                if [[ "$issues" -eq 0 ]]; then
                     ((perfect_repos++))
                 fi
+                echo ""  # Empty line between repos
             fi
         done
     fi
     
     # Check private repositories
-    if [[ -d "$PRIV_DIR" ]]; then
+    if [[ -d "$PRIV_DIR" ]] && [[ -n "$(ls -A "$PRIV_DIR" 2>/dev/null)" ]]; then
         print_status "Checking private repositories in $PRIV_DIR:"
+        print_status ""
         for repo_dir in "$PRIV_DIR"/*; do
             if [[ -d "$repo_dir" ]]; then
                 repo_name=$(basename "$repo_dir")
-                result=$(check_repo_files "$repo_dir" "$repo_name")
-                echo "  $repo_name: $result"
-                ((total_repos++))
+                check_repo_files "$repo_dir" "$repo_name"
                 
-                # Check if all checks passed (no ✗ or ⚠ symbols)
-                if [[ "$result" != *"✗"* ]] && [[ "$result" != *"⚠"* ]]; then
+                # Count issues for summary
+                issues=$(count_repo_issues "$repo_dir")
+                ((total_repos++))
+                if [[ "$issues" -eq 0 ]]; then
                     ((perfect_repos++))
                 fi
+                echo ""  # Empty line between repos
             fi
         done
+    fi
+    
+    # Check if no repositories were found
+    if [[ "$total_repos" -eq 0 ]]; then
+        print_warning "No repositories found to check."
+        print_warning "Make sure repositories are cloned in $PUB_DIR or $PRIV_DIR"
+        return
     fi
     
     # Print summary
@@ -602,16 +735,11 @@ perform_sanity_checks() {
         missing_count=$((total_repos - perfect_repos))
         print_warning "Repositories missing files: $missing_count"
         
+        print_status ""
         print_status "Legend:"
         print_status "  ✓ = File/directory present and complete"
         print_status "  ✗ = File/directory missing"
         print_status "  ⚠ = LICENSE present but contains template placeholders"
-        print_status ""
-        print_status "Checks performed:"
-        print_status "  LICENSE (with content validation), CHANGELOG, CONTRIBUTING, README, .gitignore"
-        print_status "  SECURITY, CODE_OF_CONDUCT, .editorconfig"
-        print_status "  docs/, .github/ISSUE_TEMPLATE/, .github/PULL_REQUEST_TEMPLATE.md"
-        print_status "  CI/CD configuration files"
     fi
 }
 
