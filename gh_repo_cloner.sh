@@ -99,20 +99,20 @@ read_config() {
         print_error 'NC="\033[0m"'
         exit 1
     fi
-    
+
     # Source the config file
     if ! source "$CONFIG_FILE"; then
         print_error "Failed to source config file. Please check syntax."
         exit 1
     fi
-    
+
     # Validate required variables
     if [[ -z "$ORG" ]]; then
         print_error "ORG variable not set in config file."
         print_error "Please add: ORG=\"your-organization-name\""
         exit 1
     fi
-    
+
     # Set default values if not provided
     PUB_DIR=${PUB_DIR:-"./pub"}
     PRIV_DIR=${PRIV_DIR:-"./priv"}
@@ -121,7 +121,7 @@ read_config() {
     YELLOW=${YELLOW:-'\033[1;33m'}
     BLUE=${BLUE:-'\033[0;34m'}
     NC=${NC:-'\033[0m'}
-    
+
     print_status "Organization: $ORG"
     print_status "Public directory: $PUB_DIR"
     print_status "Private directory: $PRIV_DIR"
@@ -130,7 +130,7 @@ read_config() {
 # Function to check authentication status
 check_auth() {
     print_status "Checking GitHub authentication status..."
-    
+
     if gh auth status &> /dev/null; then
         print_success "Authenticated with GitHub"
         AUTHENTICATED=true
@@ -155,7 +155,7 @@ create_directories() {
 # Function to get repository list
 get_repo_list() {
     print_status "Fetching repository list for $ORG..."
-    
+
     # Try to get repos with visibility info
     if ! REPO_JSON=$(gh repo list "$ORG" --limit 1000 --json name,isPrivate,sshUrl,visibility 2>/dev/null); then
         print_error "Failed to fetch repositories for organization '$ORG'"
@@ -165,10 +165,10 @@ get_repo_list() {
         print_error "3. You have proper permissions (if accessing private repos)"
         exit 1
     fi
-    
+
     # Check if we got any repos
     REPO_COUNT=$(echo "$REPO_JSON" | jq length)
-    
+
     if [[ "$REPO_COUNT" -eq 0 ]]; then
         print_warning "No repositories found for organization '$ORG'"
         print_warning "This could mean:"
@@ -177,29 +177,29 @@ get_repo_list() {
         print_warning "3. Organization name is incorrect"
         exit 0
     fi
-    
+
     print_success "Found $REPO_COUNT repositories"
 }
 
 # Function to clone repositories
 clone_repositories() {
     print_status "Starting repository cloning..."
-    
+
     PUBLIC_COUNT=0
     PRIVATE_COUNT=0
     FAILED_COUNT=0
-    
+
     # Process each repository
     echo "$REPO_JSON" | jq -r '.[] | @base64' | while IFS= read -r repo_data; do
         # Decode the base64 data
         repo_info=$(echo "$repo_data" | base64 --decode)
-        
+
         # Extract repository details
         repo_name=$(echo "$repo_info" | jq -r .name)
         is_private=$(echo "$repo_info" | jq -r .isPrivate)
         ssh_url=$(echo "$repo_info" | jq -r .sshUrl)
         visibility=$(echo "$repo_info" | jq -r .visibility)
-        
+
         # Determine target directory
         if [[ "$is_private" == "true" ]]; then
             target_dir="$PRIV_DIR"
@@ -208,15 +208,15 @@ clone_repositories() {
             target_dir="$PUB_DIR"
             repo_type="public"
         fi
-        
+
         print_status "Cloning $repo_type repository: $repo_name"
-        
+
         # Check if directory already exists
         if [[ -d "$target_dir/$repo_name" ]]; then
             print_status "Repository $repo_name already exists, updating..."
-            
+
             # Change to repo directory and pull latest changes
-            if (cd "$target_dir/$repo_name" && git pull &> /dev/null); then
+            if (cd "$target_dir/$repo_name" && git pull ); then
                 print_success "✓ Updated $repo_name in $target_dir/"
                 if [[ "$is_private" == "true" ]]; then
                     ((PRIVATE_COUNT++))
@@ -229,7 +229,7 @@ clone_repositories() {
             fi
             continue
         fi
-        
+
         # Clone the repository
         if git clone "$ssh_url" "$target_dir/$repo_name" &> /dev/null; then
             print_success "✓ Cloned $repo_name to $target_dir/"
@@ -243,22 +243,22 @@ clone_repositories() {
             ((FAILED_COUNT++))
         fi
     done
-    
+
     # Print summary (this won't work in the subshell, so we'll do it differently)
 }
 
 # Function to clone repositories (fixed version without subshell)
 clone_repositories_fixed() {
     print_status "Starting repository cloning..."
-    
+
     PUBLIC_COUNT=0
     PRIVATE_COUNT=0
     FAILED_COUNT=0
-    
+
     # Create temporary file for repo processing
     temp_file=$(mktemp)
     echo "$REPO_JSON" | jq -r '.[] | "\(.name)|\(.isPrivate)|\(.sshUrl)|\(.visibility)"' > "$temp_file"
-    
+
     while IFS='|' read -r repo_name is_private ssh_url visibility; do
         # Determine target directory
         if [[ "$is_private" == "true" ]]; then
@@ -268,15 +268,15 @@ clone_repositories_fixed() {
             target_dir="$PUB_DIR"
             repo_type="public"
         fi
-        
+
         print_status "Cloning $repo_type repository: $repo_name"
-        
+
         # Check if directory already exists
         if [[ -d "$target_dir/$repo_name" ]]; then
             print_warning "Directory $target_dir/$repo_name already exists, skipping..."
             continue
         fi
-        
+
         # Clone the repository
         if git clone "$ssh_url" "$target_dir/$repo_name" &> /dev/null; then
             print_success "✓ Cloned $repo_name to $target_dir/"
@@ -288,7 +288,7 @@ clone_repositories_fixed() {
         else
             print_error "✗ Failed to clone $repo_name"
             ((FAILED_COUNT++))
-            
+
             # Try HTTPS if SSH fails
             https_url="https://github.com/$ORG/$repo_name.git"
             print_status "Retrying with HTTPS: $repo_name"
@@ -303,10 +303,10 @@ clone_repositories_fixed() {
             fi
         fi
     done < "$temp_file"
-    
+
     # Clean up
     rm "$temp_file"
-    
+
     # Print summary
     print_success "Cloning completed!"
     print_status "Summary:"
@@ -321,19 +321,19 @@ clone_repositories_fixed() {
 main() {
     # Parse command line arguments first
     parse_args "$@"
-    
+
     print_status "GitHub Organization Repository Cloner"
     print_status "======================================"
-    
+
     # Check prerequisites
     check_gh_cli
-    
+
     # Read configuration
     read_config
-    
+
     # Check authentication
     check_auth
-    
+
     if [[ "$SANITY_CHECK" == true ]]; then
         # Sanity check mode
         print_status "Running in sanity check mode"
@@ -343,13 +343,13 @@ main() {
         # Normal cloning mode
         # Create directories
         create_directories
-        
+
         # Get repository list
         get_repo_list
-        
+
         # Clone repositories
-        clone_repositories_fixed
-        
+        clone_repositories
+
         print_success "All done! Check the $PUB_DIR and $PRIV_DIR directories."
         print_status "Tip: Run with --sanity-check to verify repository standards"
         print_status "Each repository check will show line-by-line results for better readability"
@@ -360,7 +360,7 @@ main() {
 check_license_content() {
     local repo_path="$1"
     local license_file=""
-    
+
     # Find the LICENSE file (case-insensitive) - expanded list
     local license_variants=(
         "LICENSE"
@@ -378,14 +378,14 @@ check_license_content() {
         "COPYRIGHT"
         "COPYRIGHT.txt"
     )
-    
+
     for variant in "${license_variants[@]}"; do
         if [[ -f "$repo_path/$variant" ]]; then
             license_file="$repo_path/$variant"
             break
         fi
     done
-    
+
     # Debug: List what files actually exist (for troubleshooting)
     if [[ -z "$license_file" ]]; then
         # Check if there are any license-like files we missed
@@ -394,19 +394,19 @@ check_license_content() {
             license_file=$(ls "$repo_path"/LICENSE* "$repo_path"/license* "$repo_path"/License* "$repo_path"/COPYING* "$repo_path"/COPYRIGHT* 2>/dev/null | head -1)
         fi
     fi
-    
+
     if [[ -z "$license_file" ]]; then
         echo "MISSING"
         return
     fi
-    
+
     # Read the license file content
     local license_content
     if ! license_content=$(cat "$license_file" 2>/dev/null); then
         echo "PRESENT"  # File exists but can't read it
         return
     fi
-    
+
     # Check for common template placeholders (case-insensitive)
     local placeholders=(
         "<year>"
@@ -424,10 +424,10 @@ check_license_content() {
         "YOUR_NAME"
         "YOUR NAME"
     )
-    
+
     # Convert to lowercase for case-insensitive matching
     local content_lower=$(echo "$license_content" | tr '[:upper:]' '[:lower:]')
-    
+
     # Check for placeholders
     for placeholder in "${placeholders[@]}"; do
         # Convert placeholder to lowercase for comparison
@@ -437,7 +437,7 @@ check_license_content() {
             return
         fi
     done
-    
+
     echo "COMPLETE"
 }
 
@@ -446,7 +446,7 @@ check_repo_files() {
     local repo_path="$1"
     local repo_name="$2"
     local results=""
-    
+
     # Files to check for (case-insensitive) - LICENSE handled separately
     local files_to_check=(
         "CHANGELOG:CHANGELOG,CHANGELOG.md,CHANGELOG.txt,changelog,changelog.md,changelog.txt,HISTORY.md,RELEASES.md"
@@ -457,18 +457,18 @@ check_repo_files() {
         "CODE_OF_CONDUCT:CODE_OF_CONDUCT.md,CODE_OF_CONDUCT.txt,CODE_OF_CONDUCT,code_of_conduct.md,code_of_conduct.txt,code_of_conduct"
         "EDITORCONFIG:.editorconfig"
     )
-    
+
     # Directory-based checks
     local dir_checks=(
         "DOCS:docs,Docs,DOCS,documentation,Documentation"
         "ISSUE_TEMPLATES:.github/ISSUE_TEMPLATE,.github/issue_template"
     )
-    
+
     # File-based GitHub checks
     local github_files=(
         "PR_TEMPLATE:.github/PULL_REQUEST_TEMPLATE.md,.github/pull_request_template.md,.github/PULL_REQUEST_TEMPLATE,.github/pull_request_template"
     )
-    
+
     # CI/CD files to check for
     local cicd_files=(
         ".github/workflows"
@@ -480,9 +480,9 @@ check_repo_files() {
         ".buildkite"
         "bitbucket-pipelines.yml"
     )
-    
+
     print_status "$repo_name:"
-    
+
     # Check LICENSE file specifically (with content validation)
     license_status=$(check_license_content "$repo_path")
     case "$license_status" in
@@ -496,12 +496,12 @@ check_repo_files() {
             echo "  ✓ LICENSE"
             ;;
     esac
-    
+
     # Check for standard files
     for file_check in "${files_to_check[@]}"; do
         IFS=':' read -r file_type file_variants <<< "$file_check"
         IFS=',' read -ra variants <<< "$file_variants"
-        
+
         found=false
         for variant in "${variants[@]}"; do
             if [[ -e "$repo_path/$variant" ]]; then
@@ -510,17 +510,17 @@ check_repo_files() {
                 break
             fi
         done
-        
+
         if [[ "$found" == false ]]; then
             echo "  ✗ $file_type"
         fi
     done
-    
+
     # Check for directories
     for dir_check in "${dir_checks[@]}"; do
         IFS=':' read -r dir_type dir_variants <<< "$dir_check"
         IFS=',' read -ra variants <<< "$dir_variants"
-        
+
         found=false
         for variant in "${variants[@]}"; do
             if [[ -d "$repo_path/$variant" ]]; then
@@ -529,17 +529,17 @@ check_repo_files() {
                 break
             fi
         done
-        
+
         if [[ "$found" == false ]]; then
             echo "  ✗ $dir_type"
         fi
     done
-    
+
     # Check for GitHub-specific files
     for github_check in "${github_files[@]}"; do
         IFS=':' read -r github_type github_variants <<< "$github_check"
         IFS=',' read -ra variants <<< "$github_variants"
-        
+
         found=false
         for variant in "${variants[@]}"; do
             if [[ -e "$repo_path/$variant" ]]; then
@@ -548,12 +548,12 @@ check_repo_files() {
                 break
             fi
         done
-        
+
         if [[ "$found" == false ]]; then
             echo "  ✗ $github_type"
         fi
     done
-    
+
     # Check for CI/CD files
     cicd_found=false
     for cicd_file in "${cicd_files[@]}"; do
@@ -562,18 +562,18 @@ check_repo_files() {
             break
         fi
     done
-    
+
     if [[ "$cicd_found" == true ]]; then
         echo "  ✓ CI/CD"
     else
         echo "  ✗ CI/CD"
     fi
-    
+
     # Return a summary for counting (perfect repos)
     # Count the checks by looking at what was printed
     local total_checks=12  # LICENSE + 7 files + 2 dirs + 1 github + 1 cicd
     local failed_checks=0
-    
+
     # This is a simple way to determine if all passed - check the license status
     if [[ "$license_status" == "MISSING" || "$license_status" == "TEMPLATE" ]]; then
         echo "INCOMPLETE"
@@ -587,7 +587,7 @@ check_repo_files() {
 count_repo_issues() {
     local repo_path="$1"
     local issues=0
-    
+
     # Count each type of check
     local checks=(
         "LICENSE"
@@ -602,17 +602,17 @@ count_repo_issues() {
         "ISSUE_TEMPLATES:.github/ISSUE_TEMPLATE,.github/issue_template"
         "PR_TEMPLATE:.github/PULL_REQUEST_TEMPLATE.md,.github/pull_request_template.md,.github/PULL_REQUEST_TEMPLATE,.github/pull_request_template"
     )
-    
+
     # Check LICENSE separately
     license_status=$(check_license_content "$repo_path")
     if [[ "$license_status" == "MISSING" || "$license_status" == "TEMPLATE" ]]; then
         ((issues++))
     fi
-    
+
     # Check other files/directories
     for check in "${checks[@]:1}"; do  # Skip LICENSE (index 0)
         IFS=':' read -r check_type check_variants <<< "$check"
-        
+
         if [[ "$check_type" == "DOCS" || "$check_type" == "ISSUE_TEMPLATES" ]]; then
             # Directory check
             IFS=',' read -ra variants <<< "$check_variants"
@@ -641,7 +641,7 @@ count_repo_issues() {
             fi
         fi
     done
-    
+
     # Check CI/CD
     local cicd_files=(
         ".github/workflows"
@@ -653,7 +653,7 @@ count_repo_issues() {
         ".buildkite"
         "bitbucket-pipelines.yml"
     )
-    
+
     cicd_found=false
     for cicd_file in "${cicd_files[@]}"; do
         if [[ -e "$repo_path/$cicd_file" ]]; then
@@ -661,11 +661,11 @@ count_repo_issues() {
             break
         fi
     done
-    
+
     if [[ "$cicd_found" == false ]]; then
         ((issues++))
     fi
-    
+
     echo $issues
 }
 
@@ -673,11 +673,11 @@ count_repo_issues() {
 perform_sanity_checks() {
     print_status "Performing sanity checks on repositories..."
     print_status "========================================"
-    
+
     # Track results
     local total_repos=0
     local perfect_repos=0
-    
+
     # Check public repositories
     if [[ -d "$PUB_DIR" ]] && [[ -n "$(ls -A "$PUB_DIR" 2>/dev/null)" ]]; then
         print_status "Checking public repositories in $PUB_DIR:"
@@ -686,7 +686,7 @@ perform_sanity_checks() {
             if [[ -d "$repo_dir" ]]; then
                 repo_name=$(basename "$repo_dir")
                 check_repo_files "$repo_dir" "$repo_name"
-                
+
                 # Count issues for summary
                 issues=$(count_repo_issues "$repo_dir")
                 ((total_repos++))
@@ -697,7 +697,7 @@ perform_sanity_checks() {
             fi
         done
     fi
-    
+
     # Check private repositories
     if [[ -d "$PRIV_DIR" ]] && [[ -n "$(ls -A "$PRIV_DIR" 2>/dev/null)" ]]; then
         print_status "Checking private repositories in $PRIV_DIR:"
@@ -706,7 +706,7 @@ perform_sanity_checks() {
             if [[ -d "$repo_dir" ]]; then
                 repo_name=$(basename "$repo_dir")
                 check_repo_files "$repo_dir" "$repo_name"
-                
+
                 # Count issues for summary
                 issues=$(count_repo_issues "$repo_dir")
                 ((total_repos++))
@@ -717,24 +717,24 @@ perform_sanity_checks() {
             fi
         done
     fi
-    
+
     # Check if no repositories were found
     if [[ "$total_repos" -eq 0 ]]; then
         print_warning "No repositories found to check."
         print_warning "Make sure repositories are cloned in $PUB_DIR or $PRIV_DIR"
         return
     fi
-    
+
     # Print summary
     print_status "Sanity Check Summary:"
     print_status "====================="
     print_status "Total repositories checked: $total_repos"
     print_success "Repositories with all files: $perfect_repos"
-    
+
     if [[ $perfect_repos -lt $total_repos ]]; then
         missing_count=$((total_repos - perfect_repos))
         print_warning "Repositories missing files: $missing_count"
-        
+
         print_status ""
         print_status "Legend:"
         print_status "  ✓ = File/directory present and complete"
@@ -746,7 +746,7 @@ perform_sanity_checks() {
 # Function to ensure repositories are cloned before sanity check
 ensure_repos_cloned() {
     local need_cloning=false
-    
+
     # Check if we have any repositories cloned
     if [[ ! -d "$PUB_DIR" ]] && [[ ! -d "$PRIV_DIR" ]]; then
         need_cloning=true
@@ -758,7 +758,7 @@ ensure_repos_cloned() {
             fi
         fi
     fi
-    
+
     if [[ "$need_cloning" == true ]]; then
         print_status "No repositories found locally. Cloning first..."
         get_repo_list
