@@ -11,6 +11,7 @@ A powerful bash script for cloning and auditing all repositories from a GitHub o
 - **Automatic Updates**: Existing repositories are automatically updated with `git pull`
 - **Authentication Aware**: Works with or without GitHub authentication (limited to public repos when unauthenticated)
 - **Comprehensive Sanity Checks**: Audit repositories for standard files and best practices with line-by-line output
+- **Repository Filtering**: Run sanity checks on specific repositories for focused analysis
 - **Flexible Configuration**: Environment-based configuration for easy customization
 - **Robust Error Handling**: Graceful handling of failed clones with HTTPS fallback
 - **Colored Output**: Clear, colored terminal output for better visibility
@@ -43,8 +44,11 @@ A powerful bash script for cloning and auditing all repositories from a GitHub o
    # Clone all repositories
    ./gh_repo_cloner.sh
    
-   # Or perform sanity checks
+   # Perform sanity checks on all repositories
    ./gh_repo_cloner.sh --sanity-check
+   
+   # Check a specific repository
+   ./gh_repo_cloner.sh --sanity-check my-repo-name
    ```
 
 ## Prerequisites
@@ -94,16 +98,69 @@ NC='\033[0m'  # No Color
 # Clone all repositories  
 ./gh_repo_cloner.sh
 
-# Perform sanity checks on repositories
+# Perform sanity checks on all repositories
 ./gh_repo_cloner.sh --sanity-check
+
+# Perform sanity check on a specific repository
+./gh_repo_cloner.sh --sanity-check my-repository-name
+
+# Alternative syntax (short form)
+./gh_repo_cloner.sh -s my-repository-name
 ```
 
 ### Command Line Options
 
 | Option | Description |
 |--------|-------------|
-| `-s, --sanity-check` | Perform sanity checks on repositories for common files |
+| `-s, --sanity-check [REPO]` | Perform sanity checks on repositories for common files. Optionally specify a specific repository name to check |
 | `-h, --help` | Show help message and exit |
+
+### Usage Examples
+
+```bash
+# Clone all repositories from the organization
+./gh_repo_cloner.sh
+
+# Run comprehensive sanity checks on all repositories
+./gh_repo_cloner.sh --sanity-check
+
+# Check only the "range42-inventory" repository
+./gh_repo_cloner.sh --sanity-check range42-inventory
+
+# Check only the "my-backend-api" repository (short form)
+./gh_repo_cloner.sh -s my-backend-api
+```
+
+## Repository Filtering
+
+The script supports filtering sanity checks to specific repositories, which is useful for:
+
+- **Focused Analysis**: Check a single repository without noise from others
+- **Quick Validation**: Verify fixes on specific repositories
+- **Onboarding**: Show new developers the standards for a particular project
+- **CI Integration**: Validate specific repositories in automated workflows
+
+### Filter Behavior
+
+- **Automatic Discovery**: The script searches for the specified repository in both `./pub` and `./priv` directories
+- **Error Handling**: If the repository isn't found, it lists all available repositories
+- **Focused Output**: Shows results only for the specified repository with a streamlined summary
+
+### Filter Examples
+
+```bash
+# Check the "awesome-project" repository
+./gh_repo_cloner.sh -s awesome-project
+
+# Output shows only results for that repository:
+# [INFO] Checking repository: awesome-project
+# [INFO] awesome-project:
+#   ✓ LICENSE
+#   ✗ CHANGELOG
+#   ...
+# [INFO] Repository checked: awesome-project
+# [SUCCESS] Repository has all required files!
+```
 
 ## Sanity Checks
 
@@ -179,7 +236,7 @@ The script goes beyond just checking for the presence of a LICENSE file - it als
 [WARNING]   Failed to clone: 5
 ```
 
-### Sanity Check Results
+### Sanity Check Results (All Repositories)
 ```
 [INFO] Checking public repositories in ./pub:
 
@@ -223,6 +280,36 @@ legacy-tool:
 [INFO]   ⚠ = LICENSE present but contains template placeholders
 ```
 
+### Sanity Check Results (Single Repository)
+```
+[INFO] Running sanity check on repository: range42-inventory
+[INFO] Checking repository: range42-inventory
+
+[INFO] range42-inventory:
+  ⚠ LICENSE (contains template placeholders)
+  ✗ CHANGELOG
+  ✗ CONTRIBUTING
+  ✓ README
+  ✓ GITIGNORE
+  ✗ SECURITY
+  ✗ CODE_OF_CONDUCT
+  ✗ EDITORCONFIG
+  ✗ DOCS
+  ✗ ISSUE_TEMPLATES
+  ✗ PR_TEMPLATE
+  ✗ CI/CD
+
+[INFO] Sanity Check Summary:
+[INFO] =====================
+[INFO] Repository checked: range42-inventory
+[WARNING] Repository is missing some files.
+
+[INFO] Legend:
+[INFO]   ✓ = File/directory present and complete
+[INFO]   ✗ = File/directory missing
+[INFO]   ⚠ = LICENSE present but contains template placeholders
+```
+
 ## Authentication
 
 ### GitHub CLI Authentication
@@ -249,6 +336,7 @@ The script includes robust error handling:
 - **Existing Repository Updates**: Automatically pulls latest changes for existing repositories
 - **Permission Validation**: Clear error messages for access issues
 - **Rate Limit Awareness**: Warns about API rate limits for unauthenticated users
+- **Repository Not Found**: When filtering, provides helpful error messages with available repository lists
 
 ## Directory Structure
 
@@ -280,6 +368,9 @@ gh auth status
 
 # Dry run sanity checks
 ./gh_repo_cloner.sh --sanity-check
+
+# Test repository filtering
+./gh_repo_cloner.sh --sanity-check non-existent-repo  # Should show available repos
 ```
 
 ### Contributing
@@ -297,6 +388,7 @@ gh auth status
 - **Standardize Templates**: Use the script to identify repos missing issue/PR templates
 - **Security Compliance**: Ensure all repositories have `SECURITY.md` files
 - **Documentation**: Verify all projects have proper `README.md` and `docs/` directories
+- **Focused Reviews**: Use repository filtering to validate specific projects during code reviews
 
 ### For Repository Management
 - **Batch Updates**: Use the script to identify repositories needing standardization
@@ -304,6 +396,7 @@ gh auth status
 - **Clean Working Directory**: Ensure local repositories have no uncommitted changes before running updates
 - **Onboarding**: Include sanity check results in new developer onboarding
 - **Compliance**: Track organization-wide compliance with repository standards
+- **Targeted Fixes**: Use filtering to verify fixes on specific repositories
 
 ## Limitations
 
@@ -323,6 +416,12 @@ gh auth status
 **"No repositories found"**  
 - Organization may have only private repositories (authenticate with `gh auth login`)
 - Organization name may be incorrect
+
+**"Repository 'repo-name' not found"** (when filtering)
+- Check spelling of the repository name
+- Ensure repositories are cloned first (run without `-s` flag)
+- Repository may be in a different case (names are case-sensitive)
+- Use the error output to see available repositories
 
 **"Permission denied"**
 - SSH key not configured properly
