@@ -7,6 +7,7 @@ set -e  # Exit on any error
 
 # Global variables
 SANITY_CHECK=false
+REPO_FILTER=""
 
 # Configuration
 CONFIG_FILE="config.env"
@@ -32,11 +33,17 @@ print_error() {
 show_usage() {
     echo "GitHub Organization Repository Cloner"
     echo ""
-    echo "Usage: $0 [OPTIONS]"
+    echo "Usage: $0 [OPTIONS] [REPOSITORY_NAME]"
     echo ""
     echo "Options:"
-    echo "  -s, --sanity-check    Perform sanity checks on repositories for common files"
-    echo "  -h, --help           Show this help message"
+    echo "  -s, --sanity-check [REPO]    Perform sanity checks on repositories for common files"
+    echo "                              Optionally specify a specific repository name to check"
+    echo "  -h, --help                  Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                          Clone all repositories"
+    echo "  $0 -s                       Run sanity checks on all repositories"
+    echo "  $0 -s my-repo               Run sanity check only on 'my-repo'"
     echo ""
     echo "Sanity checks include:"
     echo "  - LICENSE (with content validation for template placeholders)"
@@ -60,15 +67,37 @@ parse_args() {
             -s|--sanity-check)
                 SANITY_CHECK=true
                 shift
+                # Check if next argument is a repository name (not starting with -)
+                if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+                    REPO_FILTER="$1"
+                    shift
+                fi
                 ;;
             -h|--help)
                 show_usage
                 exit 0
                 ;;
-            *)
+            -*)
                 print_error "Unknown option: $1"
                 show_usage
                 exit 1
+                ;;
+            *)
+                # If we encounter a non-option argument and sanity check is not set,
+                # it's an error
+                if [[ "$SANITY_CHECK" != true ]]; then
+                    print_error "Unknown argument: $1"
+                    show_usage
+                    exit 1
+                fi
+                # Otherwise, it might be a repository name for sanity check
+                if [[ -z "$REPO_FILTER" ]]; then
+                    REPO_FILTER="$1"
+                else
+                    print_error "Multiple repository names specified: $REPO_FILTER and $1"
+                    exit 1
+                fi
+                shift
                 ;;
         esac
     done
@@ -336,7 +365,11 @@ main() {
 
     if [[ "$SANITY_CHECK" == true ]]; then
         # Sanity check mode
-        print_status "Running in sanity check mode"
+        if [[ -n "$REPO_FILTER" ]]; then
+            print_status "Running sanity check on repository: $REPO_FILTER"
+        else
+            print_status "Running sanity check on all repositories"
+        fi
         ensure_repos_cloned
         perform_sanity_checks
     else
@@ -669,6 +702,26 @@ count_repo_issues() {
     echo $issues
 }
 
+# Function to find repository path
+find_repo_path() {
+    local repo_name="$1"
+    
+    # Check in public directory first
+    if [[ -d "$PUB_DIR/$repo_name" ]]; then
+        echo "$PUB_DIR/$repo_name"
+        return 0
+    fi
+    
+    # Check in private directory
+    if [[ -d "$PRIV_DIR/$repo_name" ]]; then
+        echo "$PRIV_DIR/$repo_name"
+        return 0
+    fi
+    
+    # Not found
+    return 1
+}
+
 # Function to perform sanity checks on all repositories
 perform_sanity_checks() {
     print_status "Performing sanity checks on repositories..."
@@ -678,74 +731,138 @@ perform_sanity_checks() {
     local total_repos=0
     local perfect_repos=0
 
-    # Check public repositories
-    if [[ -d "$PUB_DIR" ]] && [[ -n "$(ls -A "$PUB_DIR" 2>/dev/null)" ]]; then
-        print_status "Checking public repositories in $PUB_DIR:"
-        print_status ""
-        for repo_dir in "$PUB_DIR"/* "$PUB_DIR"/.github; do
-            [ -d "$repo_dir" ] || continue
-            if [[ -d "$repo_dir" ]]; then
-                repo_name=$(basename "$repo_dir")
-                check_repo_files "$repo_dir" "$repo_name"
-
-                # Count issues for summary
-                issues=$(count_repo_issues "$repo_dir")
-                ((total_repos++))
-                if [[ "$issues" -eq 0 ]]; then
-                    ((perfect_repos++))
-                fi
-                echo ""  # Empty line between repos
+    # If a specific repository filter is set, only check that repository
+    if [[ -n "$REPO_FILTER" ]]; then
+        local repo_path
+        if repo_path=$(find_repo_path "$REPO_FILTER"); then
+            print_status "Checking repository: $REPO_FILTER"
+            print_status ""
+            
+            check_repo_files "$repo_path" "$REPO_FILTER"
+            
+            # Count issues for summary
+            issues=$(count_repo_issues "$repo_path")
+            total_repos=1
+            if [[ "$issues" -eq 0 ]]; then
+                perfect_repos=1
             fi
-        done
-    fi
-
-    # Check private repositories
-    if [[ -d "$PRIV_DIR" ]] && [[ -n "$(ls -A "$PRIV_DIR" 2>/dev/null)" ]]; then
-        print_status "Checking private repositories in $PRIV_DIR:"
-        print_status ""
-        for repo_dir in "$PRIV_DIR"/*; do
-            if [[ -d "$repo_dir" ]]; then
-                repo_name=$(basename "$repo_dir")
-                check_repo_files "$repo_dir" "$repo_name"
-
-                # Count issues for summary
-                issues=$(count_repo_issues "$repo_dir")
-                ((total_repos++))
-                if [[ "$issues" -eq 0 ]]; then
-                    ((perfect_repos++))
-                fi
-                echo ""  # Empty line between repos
+            echo ""  # Empty line after repo
+        else
+            print_error "Repository '$REPO_FILTER' not found in $PUB_DIR or $PRIV_DIR"
+            print_error "Available repositories:"
+            if [[ -d "$PUB_DIR" ]]; then
+                print_error "  Public repositories in $PUB_DIR:"
+                for repo_dir in "$PUB_DIR"/*; do
+                    if [[ -d "$repo_dir" ]]; then
+                        print_error "    - $(basename "$repo_dir")"
+                    fi
+                done
             fi
-        done
+            if [[ -d "$PRIV_DIR" ]]; then
+                print_error "  Private repositories in $PRIV_DIR:"
+                for repo_dir in "$PRIV_DIR"/*; do
+                    if [[ -d "$repo_dir" ]]; then
+                        print_error "    - $(basename "$repo_dir")"
+                    fi
+                done
+            fi
+            exit 1
+        fi
+    else
+        # Check all repositories (original behavior)
+        
+        # Check public repositories
+        if [[ -d "$PUB_DIR" ]] && [[ -n "$(ls -A "$PUB_DIR" 2>/dev/null)" ]]; then
+            print_status "Checking public repositories in $PUB_DIR:"
+            print_status ""
+            for repo_dir in "$PUB_DIR"/* "$PUB_DIR"/.github; do
+                [ -d "$repo_dir" ] || continue
+                if [[ -d "$repo_dir" ]]; then
+                    repo_name=$(basename "$repo_dir")
+                    check_repo_files "$repo_dir" "$repo_name"
+
+                    # Count issues for summary
+                    issues=$(count_repo_issues "$repo_dir")
+                    ((total_repos++))
+                    if [[ "$issues" -eq 0 ]]; then
+                        ((perfect_repos++))
+                    fi
+                    echo ""  # Empty line between repos
+                fi
+            done
+        fi
+
+        # Check private repositories
+        if [[ -d "$PRIV_DIR" ]] && [[ -n "$(ls -A "$PRIV_DIR" 2>/dev/null)" ]]; then
+            print_status "Checking private repositories in $PRIV_DIR:"
+            print_status ""
+            for repo_dir in "$PRIV_DIR"/*; do
+                if [[ -d "$repo_dir" ]]; then
+                    repo_name=$(basename "$repo_dir")
+                    check_repo_files "$repo_dir" "$repo_name"
+
+                    # Count issues for summary
+                    issues=$(count_repo_issues "$repo_dir")
+                    ((total_repos++))
+                    if [[ "$issues" -eq 0 ]]; then
+                        ((perfect_repos++))
+                    fi
+                    echo ""  # Empty line between repos
+                fi
+            done
+        fi
     fi
 
     # Check if no repositories were found
     if [[ "$total_repos" -eq 0 ]]; then
-        print_warning "No repositories found to check."
-        print_warning "Make sure repositories are cloned in $PUB_DIR or $PRIV_DIR"
+        if [[ -n "$REPO_FILTER" ]]; then
+            print_warning "Repository '$REPO_FILTER' not found."
+        else
+            print_warning "No repositories found to check."
+            print_warning "Make sure repositories are cloned in $PUB_DIR or $PRIV_DIR"
+        fi
         return
     fi
 
     # Print summary
     print_status "Sanity Check Summary:"
     print_status "====================="
-    print_status "Total repositories checked: $total_repos"
-    print_success "Repositories with all files: $perfect_repos"
+    if [[ -n "$REPO_FILTER" ]]; then
+        print_status "Repository checked: $REPO_FILTER"
+        if [[ $perfect_repos -eq 1 ]]; then
+            print_success "Repository has all required files!"
+        else
+            print_warning "Repository is missing some files."
+        fi
+    else
+        print_status "Total repositories checked: $total_repos"
+        print_success "Repositories with all files: $perfect_repos"
 
-    if [[ $perfect_repos -lt $total_repos ]]; then
-        missing_count=$((total_repos - perfect_repos))
-        print_warning "Repositories missing files: $missing_count"
-
-        print_status ""
-        print_status "Legend:"
-        print_status "  ✓ = File/directory present and complete"
-        print_status "  ✗ = File/directory missing"
-        print_status "  ⚠ = LICENSE present but contains template placeholders"
+        if [[ $perfect_repos -lt $total_repos ]]; then
+            missing_count=$((total_repos - perfect_repos))
+            print_warning "Repositories missing files: $missing_count"
+        fi
     fi
+
+    print_status ""
+    print_status "Legend:"
+    print_status "  ✓ = File/directory present and complete"
+    print_status "  ✗ = File/directory missing"
+    print_status "  ⚠ = LICENSE present but contains template placeholders"
 }
 
 # Function to ensure repositories are cloned before sanity check
 ensure_repos_cloned() {
+    # If we're filtering for a specific repository, check if it exists
+    if [[ -n "$REPO_FILTER" ]]; then
+        if find_repo_path "$REPO_FILTER" > /dev/null; then
+            print_status "Using existing repository clone for sanity check: $REPO_FILTER"
+            return
+        else
+            print_status "Repository '$REPO_FILTER' not found locally. Cloning all repositories first..."
+        fi
+    fi
+
     local need_cloning=false
 
     # Check if we have any repositories cloned
@@ -761,11 +878,17 @@ ensure_repos_cloned() {
     fi
 
     if [[ "$need_cloning" == true ]]; then
-        print_status "No repositories found locally. Cloning first..."
+        if [[ -n "$REPO_FILTER" ]]; then
+            print_status "No repositories found locally. Cloning all repositories to find '$REPO_FILTER'..."
+        else
+            print_status "No repositories found locally. Cloning first..."
+        fi
         get_repo_list
         clone_repositories_fixed
     else
-        print_status "Using existing repository clones for sanity check"
+        if [[ -z "$REPO_FILTER" ]]; then
+            print_status "Using existing repository clones for sanity check"
+        fi
     fi
 }
 
