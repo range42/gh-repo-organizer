@@ -682,7 +682,8 @@ perform_sanity_checks() {
     if [[ -d "$PUB_DIR" ]] && [[ -n "$(ls -A "$PUB_DIR" 2>/dev/null)" ]]; then
         print_status "Checking public repositories in $PUB_DIR:"
         print_status ""
-        for repo_dir in "$PUB_DIR"/*; do
+        for repo_dir in "$PUB_DIR"/* "$PUB_DIR"/.github; do
+            [ -d "$repo_dir" ] || continue
             if [[ -d "$repo_dir" ]]; then
                 repo_name=$(basename "$repo_dir")
                 check_repo_files "$repo_dir" "$repo_name"
