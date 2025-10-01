@@ -9,6 +9,7 @@ else
 fi
 
 mkdir -p analysis/files
+
 for d in ${scope}/*; do
   if [ -e ${scope}/.github ]; then
     d=${scope}/.github
@@ -17,7 +18,7 @@ for d in ${scope}/*; do
   mkdir -p analysis/files/"$repo"
   for f in README.md README.rst docs/* architecture* docker* Dockerfile .github/workflows/* requirements*.txt pyproject.toml package.json go.mod; do
     if compgen -G "$d/$f" >/dev/null; then
-      cp -r $d/$f analysis/files/"$repo"/ 2>/dev/null || true
+      cp -r "$d/$f" analysis/files/"$repo"/ 2>/dev/null || true
     fi
   done
   # capture top-level tree

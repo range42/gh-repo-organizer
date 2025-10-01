@@ -1,4 +1,3 @@
-# metadata_extract.sh
 if [ "$1" == "pub" ]; then
     scope="$1"
 elif [ "$1" == "priv" ]; then
@@ -9,7 +8,7 @@ else
 fi
 
 mkdir -p analysis/metadata
-for d in pub/*; do
+for d in ${scope}/*; do
   if [ -e ${scope}/.github ]; then
     d=${scope}/.github
   fi

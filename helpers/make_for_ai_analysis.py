@@ -121,7 +121,7 @@ def make_one(repo):
             pass
     parts.append("--- REPO HEADER ---\n" + yaml.safe_dump(header, default_flow_style=False))
     # one-line summary (autogen)
-    one_line = f"{repo} — files: {len(os.listdir(repo_files_dir)) if os.path.isdir(repo_files_dir) else 0}; generated: {datetime.datetime.utcnow().isoformat()}Z"
+    one_line = f"{repo} — files: {len(os.listdir(repo_files_dir)) if os.path.isdir(repo_files_dir) else 0}; generated: {datetime.datetime.now(datetime.UTC).isoformat()}Z"
     parts.append("--- ONE-LINE SUMMARY (AUTOGEN) ---\n" + one_line)
     # README
     readme_path = None
@@ -167,7 +167,7 @@ def make_one(repo):
     # sanitization log (minimal)
     parts.append("--- SANITIZATION LOG ---\n" + "Redaction performed for common secret patterns (see script).")
     # footer
-    parts.append("--- CONTEXT FOOTER ---\nGenerated at: " + datetime.datetime.utcnow().isoformat() + "Z\nEstimated_chars_limit=" + str(MAX_CHARS))
+    parts.append("--- CONTEXT FOOTER ---\nGenerated at: " + datetime.datetime.now(datetime.UTC).isoformat() + "Z\nEstimated_chars_limit=" + str(MAX_CHARS))
     content = "\n\n".join(parts)
     # final truncation
     if len(content) > MAX_CHARS:
