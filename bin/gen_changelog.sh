@@ -27,6 +27,9 @@ if [ ! -d "venv" ]; then
     echo "Virtual environment created successfully."
 else
     echo "Directory 'venv' already exists. No action needed."
+    source ./venv/bin/activate
+    venv/bin/pip install -U setuptools pip
+    venv/bin/pip install -U -r requirements.txt
 fi
 
 # Check if gitchangelog is installed
