@@ -1,60 +1,97 @@
 #!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
 
-# Function to check for uncommitted changes in the Git repository
-check_git_changes() {
-    if [ -d ".git" ]; then
-        # Check for uncommitted changes
-        if [ -n "$(git status --porcelain)" ]; then
-            echo "Warning: There are uncommitted changes in the current repository."
-            echo "Please commit or stash your changes before proceeding."
-            exit 1
-        fi
+### ----------------------------------------------------------------
+### Helper: detect GNU sed (gsed) if needed, or error if missing
+### ----------------------------------------------------------------
+detect_sed() {
+  # If gsed is present, prefer it
+  if command -v gsed >/dev/null 2>&1; then
+    echo "gsed"
+    return 0
+  fi
+
+  # If plain sed exists, test if it's GNU
+  if command -v sed >/dev/null 2>&1; then
+    if sed --version >/dev/null 2>&1; then
+      # It's GNU sed
+      echo "sed"
+      return 0
     fi
+  fi
+
+  # Otherwise, error out
+  echo >&2 "ERROR: GNU sed (gsed) not found and default sed is not GNU-compatible."
+  echo >&2 "Install GNU sed (e.g. on macOS: brew install gnu-sed) and re-run this script."
+  exit 1
 }
 
-# Check for uncommitted changes in the Git repository
-check_git_changes
+xSED="$(detect_sed)"
 
-[[ -e "$(which gsed)" ]] && xSED="gsed" || xSED="sed"
+### ----------------------------------------------------------------
+### Check repository state & file existence
+### ----------------------------------------------------------------
 
-# Check if the directory 'venv' exists
-if [ ! -d "venv" ]; then
-    echo "Directory 'venv' does not exist. Creating virtual environment..."
-    python3 -m venv venv
-    venv/bin/pip install -U setuptools pip
-    venv/bin/pip install -r requirements.txt
-    source ./venv/bin/activate
-    echo "Virtual environment created successfully."
-else
-    echo "Directory 'venv' already exists. No action needed."
-    source ./venv/bin/activate
-    venv/bin/pip install -U setuptools pip
-    venv/bin/pip install -U -r requirements.txt
+# Ensure we're in a git repository
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  echo "ERROR: Not inside a Git repository."
+  exit 1
+}
+
+# Ensure working tree is clean
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "ERROR: Uncommitted changes present. Please commit or stash before running."
+  exit 1
 fi
 
-# Check if gitchangelog is installed
-if ! command -v gitchangelog &> /dev/null
-then
-    pip install gitchangelog
+# Ensure CHANGELOG.md exists
+if [[ ! -f CHANGELOG.md ]]; then
+  echo "ERROR: CHANGELOG.md not found in current directory."
+  exit 1
 fi
 
-gitchangelog > CHANGELOG.md
+### ----------------------------------------------------------------
+### Apply transformations
+### ----------------------------------------------------------------
 
-# This search and replace is sub-optimal. It replaces 3 "~"s beginning of the line
-# and then just replaces the remaining 2 following tildes in the document.
-# This might change the sense of some commit messages...
-${xSED} -i "s/^\~\~\~/---/" CHANGELOG.md
-${xSED} -i "s/^- \#/- \\\#/" CHANGELOG.md
-${xSED} -i "s/\~\~/--/g" CHANGELOG.md
-${xSED} -i "s/\(unreleased\)/current changelog/g" CHANGELOG.md
-${xSED} -i "s/%%version%%/LHC documentation/g" CHANGELOG.md
+# We’ll do several in-place edits. With GNU sed, `-i` works directly.
+# Use xSED for all sed invocations.
+# If you ever need portability with BSD sed, you’d need to use the `-i ''` form, but here we assume GNU.
 
-# Emojifying things
-${xSED} -i "s/\/\!\\\/:warning:/g" CHANGELOG.md
-${xSED} -i "s/WiP/:construction:/g" CHANGELOG.md
-${xSED} -i "s/WIP/:construction:/g" CHANGELOG.md
-${xSED} -i "s/Wip:/:construction:/g" CHANGELOG.md
-${xSED} -i "s/\[security\]/:lock:/g" CHANGELOG.md
+# Fence normalization: “~~~” → “---” when fence
+"${xSED}" -i -E 's/^~~~([[:alnum:]_-]*)$/---\1/' CHANGELOG.md
+
+# Escape leading `#` in list items (for bullets)
+"${xSED}" -i -E 's/^(\s*[-*+]\s*)#/\1\\#/' CHANGELOG.md
+
+# Replace “(unreleased)” in headings
+"${xSED}" -i -E 's/^\s*##[[:space:]]*\(unreleased\)/## current changelog/I' CHANGELOG.md
+
+# Replace version placeholder
+"${xSED}" -i 's/%%version%%/LHC documentation/g' CHANGELOG.md
+
+# Emoji / symbolic replacements:
+
+# /!\ → :warning:
+"${xSED}" -i 's@/!\\@:warning:@g' CHANGELOG.md
+
+# WIP / WiP variants → :construction:
+"${xSED}" -i -E 's/\bWIP\b/:construction:/gI' CHANGELOG.md
+
+# [security] label in list → :lock:
+"${xSED}" -i -E 's/^\s*-\s*\[security\]\s*/- :lock: /I' CHANGELOG.md
+
+### ----------------------------------------------------------------
+### Commit changes if any
+### ----------------------------------------------------------------
 
 git add CHANGELOG.md
-git commit -m "chg: [log] Updated CHANGELOG.md"
+
+# Only commit if there is a change staged
+if ! git diff --cached --quiet -- CHANGELOG.md; then
+  git commit -m "chg: [log] Updated CHANGELOG.md"
+  echo "Committed updated CHANGELOG.md"
+else
+  echo "No changes to CHANGELOG.md; skipping commit."
+fi
