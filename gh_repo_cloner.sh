@@ -174,6 +174,38 @@ check_auth() {
     fi
 }
 
+# Function to determine the user's preferred git protocol
+determine_git_protocol() {
+    local protocol_source="default"
+    local configured_protocol=""
+
+    if [[ -n "${GIT_PROTOCOL:-}" ]]; then
+        configured_protocol="$GIT_PROTOCOL"
+        protocol_source="config.env"
+    elif configured_protocol=$(gh config get git_protocol 2>/dev/null); then
+        protocol_source="gh config"
+    fi
+
+    # Normalize to lowercase without relying on bash-specific expansion
+    configured_protocol=$(printf '%s' "$configured_protocol" | tr '[:upper:]' '[:lower:]')
+
+    case "$configured_protocol" in
+        ssh|https)
+            GIT_PROTOCOL="$configured_protocol"
+            ;;
+        "")
+            GIT_PROTOCOL="ssh"
+            ;;
+        *)
+            print_warning "Invalid git protocol '$configured_protocol' from $protocol_source; falling back to ssh"
+            GIT_PROTOCOL="ssh"
+            protocol_source="default"
+            ;;
+    esac
+
+    print_status "Preferred git protocol ($protocol_source): $GIT_PROTOCOL"
+}
+
 # Function to create directories
 create_directories() {
     print_status "Creating directories..."
@@ -216,72 +248,7 @@ clone_repositories() {
 
     PUBLIC_COUNT=0
     PRIVATE_COUNT=0
-    FAILED_COUNT=0
-
-    # Process each repository
-    echo "$REPO_JSON" | jq -r '.[] | @base64' | while IFS= read -r repo_data; do
-        # Decode the base64 data
-        repo_info=$(echo "$repo_data" | base64 --decode)
-
-        # Extract repository details
-        repo_name=$(echo "$repo_info" | jq -r .name)
-        is_private=$(echo "$repo_info" | jq -r .isPrivate)
-        ssh_url=$(echo "$repo_info" | jq -r .sshUrl)
-        visibility=$(echo "$repo_info" | jq -r .visibility)
-
-        # Determine target directory
-        if [[ "$is_private" == "true" ]]; then
-            target_dir="$PRIV_DIR"
-            repo_type="private"
-        else
-            target_dir="$PUB_DIR"
-            repo_type="public"
-        fi
-
-        print_status "Cloning $repo_type repository: $repo_name"
-
-        # Check if directory already exists
-        if [[ -d "$target_dir/$repo_name" ]]; then
-            print_status "Repository $repo_name already exists, updating..."
-
-            # Change to repo directory and pull latest changes
-            if (cd "$target_dir/$repo_name" && git pull ); then
-                print_success "✓ Updated $repo_name in $target_dir/"
-                if [[ "$is_private" == "true" ]]; then
-                    ((PRIVATE_COUNT++))
-                else
-                    ((PUBLIC_COUNT++))
-                fi
-            else
-                print_error "✗ Failed to update $repo_name (may have local changes or connection issues)"
-                ((FAILED_COUNT++))
-            fi
-            continue
-        fi
-
-        # Clone the repository
-        if git clone "$ssh_url" "$target_dir/$repo_name" &> /dev/null; then
-            print_success "✓ Cloned $repo_name to $target_dir/"
-            if [[ "$is_private" == "true" ]]; then
-                ((PRIVATE_COUNT++))
-            else
-                ((PUBLIC_COUNT++))
-            fi
-        else
-            print_error "✗ Failed to clone $repo_name"
-            ((FAILED_COUNT++))
-        fi
-    done
-
-    # Print summary (this won't work in the subshell, so we'll do it differently)
-}
-
-# Function to clone repositories (fixed version without subshell)
-clone_repositories_fixed() {
-    print_status "Starting repository cloning..."
-
-    PUBLIC_COUNT=0
-    PRIVATE_COUNT=0
+    UPDATED_COUNT=0
     FAILED_COUNT=0
 
     # Create temporary file for repo processing
@@ -302,34 +269,65 @@ clone_repositories_fixed() {
 
         # Check if directory already exists
         if [[ -d "$target_dir/$repo_name" ]]; then
-            print_warning "Directory $target_dir/$repo_name already exists, skipping..."
+            print_status "Repository $repo_name already exists, updating..."
+
+            if git -C "$target_dir/$repo_name" pull --ff-only &> /dev/null; then
+                print_success "✓ Updated $repo_name in $target_dir/"
+                ((UPDATED_COUNT+=1))
+                continue
+            fi
+
+            print_warning "⚠ Failed to update $repo_name (likely local changes)."
+            print_warning "  Attempting to continue with existing clone."
+            ((FAILED_COUNT+=1))
             continue
         fi
 
-        # Clone the repository
-        if git clone "$ssh_url" "$target_dir/$repo_name" &> /dev/null; then
-            print_success "✓ Cloned $repo_name to $target_dir/"
+        # Determine preferred clone protocol based on gh configuration
+        preferred_protocol=${GIT_PROTOCOL:-ssh}
+        https_url="https://github.com/$ORG/$repo_name.git"
+
+        if [[ "$preferred_protocol" == "https" ]]; then
+            clone_url="$https_url"
+            remote_protocol="HTTPS"
+        else
+            clone_url="$ssh_url"
+            remote_protocol="SSH"
+        fi
+
+        # Fall back to HTTPS if SSH URL is unavailable
+        if [[ -z "$clone_url" || "$clone_url" == "null" ]]; then
+            clone_url="$https_url"
+            remote_protocol="HTTPS"
+        fi
+
+        if git clone "$clone_url" "$target_dir/$repo_name" &> /dev/null; then
+            print_success "✓ Cloned $repo_name to $target_dir/ (${remote_protocol})"
             if [[ "$is_private" == "true" ]]; then
-                ((PRIVATE_COUNT++))
+                ((PRIVATE_COUNT+=1))
             else
-                ((PUBLIC_COUNT++))
+                ((PUBLIC_COUNT+=1))
             fi
         else
-            print_error "✗ Failed to clone $repo_name"
-            ((FAILED_COUNT++))
-
-            # Try HTTPS if SSH fails
-            https_url="https://github.com/$ORG/$repo_name.git"
-            print_status "Retrying with HTTPS: $repo_name"
-            if git clone "$https_url" "$target_dir/$repo_name" &> /dev/null; then
-                print_success "✓ Cloned $repo_name to $target_dir/ (via HTTPS)"
-                if [[ "$is_private" == "true" ]]; then
-                    ((PRIVATE_COUNT++))
-                else
-                    ((PUBLIC_COUNT++))
+            # Retry with HTTPS if the SSH clone fails
+            if [[ "$remote_protocol" == "SSH" ]]; then
+                if [[ -d "$target_dir/$repo_name" && ! -d "$target_dir/$repo_name/.git" ]]; then
+                    rm -rf "$target_dir/$repo_name"
                 fi
-                ((FAILED_COUNT--))
+                print_warning "SSH clone failed; retrying with HTTPS for $repo_name"
+                if git clone "$https_url" "$target_dir/$repo_name" &> /dev/null; then
+                    print_success "✓ Cloned $repo_name to $target_dir/ (HTTPS fallback)"
+                    if [[ "$is_private" == "true" ]]; then
+                        ((PRIVATE_COUNT+=1))
+                    else
+                        ((PUBLIC_COUNT+=1))
+                    fi
+                    continue
+                fi
             fi
+
+            print_error "✗ Failed to clone $repo_name"
+            ((FAILED_COUNT+=1))
         fi
     done < "$temp_file"
 
@@ -341,8 +339,11 @@ clone_repositories_fixed() {
     print_status "Summary:"
     print_status "  Public repositories cloned: $PUBLIC_COUNT"
     print_status "  Private repositories cloned: $PRIVATE_COUNT"
+    if [[ $UPDATED_COUNT -gt 0 ]]; then
+        print_status "  Repositories updated: $UPDATED_COUNT"
+    fi
     if [[ $FAILED_COUNT -gt 0 ]]; then
-        print_warning "  Failed to clone: $FAILED_COUNT"
+        print_warning "  Failed actions: $FAILED_COUNT"
     fi
 }
 
@@ -362,6 +363,7 @@ main() {
 
     # Check authentication
     check_auth
+    determine_git_protocol
 
     if [[ "$SANITY_CHECK" == true ]]; then
         # Sanity check mode
@@ -639,7 +641,7 @@ count_repo_issues() {
     # Check LICENSE separately
     license_status=$(check_license_content "$repo_path")
     if [[ "$license_status" == "MISSING" || "$license_status" == "TEMPLATE" ]]; then
-        ((issues++))
+        ((issues+=1))
     fi
 
     # Check other files/directories
@@ -657,7 +659,7 @@ count_repo_issues() {
                 fi
             done
             if [[ "$found" == false ]]; then
-                ((issues++))
+                ((issues+=1))
             fi
         else
             # File check
@@ -670,7 +672,7 @@ count_repo_issues() {
                 fi
             done
             if [[ "$found" == false ]]; then
-                ((issues++))
+                ((issues+=1))
             fi
         fi
     done
@@ -696,7 +698,7 @@ count_repo_issues() {
     done
 
     if [[ "$cicd_found" == false ]]; then
-        ((issues++))
+        ((issues+=1))
     fi
 
     echo $issues
@@ -783,9 +785,9 @@ perform_sanity_checks() {
 
                     # Count issues for summary
                     issues=$(count_repo_issues "$repo_dir")
-                    ((total_repos++))
+                    ((total_repos+=1))
                     if [[ "$issues" -eq 0 ]]; then
-                        ((perfect_repos++))
+                        ((perfect_repos+=1))
                     fi
                     echo ""  # Empty line between repos
                 fi
@@ -803,9 +805,9 @@ perform_sanity_checks() {
 
                     # Count issues for summary
                     issues=$(count_repo_issues "$repo_dir")
-                    ((total_repos++))
+                    ((total_repos+=1))
                     if [[ "$issues" -eq 0 ]]; then
-                        ((perfect_repos++))
+                        ((perfect_repos+=1))
                     fi
                     echo ""  # Empty line between repos
                 fi
@@ -884,7 +886,7 @@ ensure_repos_cloned() {
             print_status "No repositories found locally. Cloning first..."
         fi
         get_repo_list
-        clone_repositories_fixed
+        clone_repositories
     else
         if [[ -z "$REPO_FILTER" ]]; then
             print_status "Using existing repository clones for sanity check"
