@@ -22,6 +22,7 @@ New
 
 Changes
 ~~~~~~~
+- [log] Updated CHANGELOG.md. [Steve Clement]
 - [gi] Ignore .claude/ directory. [Claude Sonnet 4.6, Steve Clement]
 - [sh] Add pull cooldown, removed-repo detection, fix helper globs, fix
   tooling. [Claude Sonnet 4.6, Steve Clement]
