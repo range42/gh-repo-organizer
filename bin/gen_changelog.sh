@@ -90,6 +90,7 @@ git add CHANGELOG.md
 
 # Only commit if there is a change staged
 if ! git diff --cached --quiet -- CHANGELOG.md; then
+  read -r -p "CHANGELOG.md updated. Press Enter to commit, or Ctrl+C to abort..."
   git commit -m "chg: [log] Updated CHANGELOG.md"
   echo "Committed updated CHANGELOG.md"
 else
