@@ -109,11 +109,14 @@ The analysis pipeline is a multi-stage process that prepares repository data for
 ├── gh_repo_cloner.sh          # Main script (clone + sanity checks)
 ├── config.env                 # Configuration (ORG, paths, colors)
 ├── Makefile                   # Task automation
+├── AGENTS.md                  # Agent/Copilot guidelines
+├── GEMINI.md                  # Gemini CLI guidelines (gitignored)
 ├── helpers/
 │   ├── 1_files_extract.sh     # Extract key files from repos
 │   ├── 2_meta_extract.sh      # Extract git metadata
 │   ├── 3_static_scan.sh       # Run security/dependency scans
-│   └── make_for_ai_analysis.py# Aggregate analysis for AI
+│   ├── make_for_ai_analysis.py# Aggregate analysis for AI
+│   └── requirements.txt       # Python deps for helpers (pyaml)
 ├── bin/
 │   └── gen_changelog.sh       # Wrapper for gitchangelog
 ├── pub/                       # Public repositories (auto-created)
@@ -133,7 +136,7 @@ The analysis pipeline is a multi-stage process that prepares repository data for
 - **Indentation**: 4 spaces (no tabs)
 - **Error handling**: `set -e` at top of all scripts
 - **Functions**: `snake_case` naming matching existing patterns
-- **Output**: Use shared helpers (`print_status`, `print_success`, `print_warning`, `print_error`) - never raw `echo`
+- **Output**: In `gh_repo_cloner.sh`, use shared helpers (`print_status`, `print_success`, `print_warning`, `print_error`) - never raw `echo`. Helper scripts in `helpers/` use direct `echo`; keep changes consistent with each file's surrounding style.
 - **Environment**: Uppercase variables from `config.env` (e.g., `ORG`, `PUB_DIR`, `PRIV_DIR`)
 - **Arguments**: Long-form flags first (`--sanity-check` before `-s`)
 
@@ -172,7 +175,7 @@ NC='\033[0m'
 
 The script validates 12 compliance areas with file/directory variants:
 
-1. **LICENSE**: LICENSE, LICENSE.txt, LICENSE.md, COPYING, COPYRIGHT
+1. **LICENSE**: LICENSE, LICENSE.txt, LICENSE.md, LICENSE.rst, COPYING, COPYRIGHT
    - Content validation detects unfilled templates: `<year>`, `<author>`, `COPYRIGHT_HOLDER`, etc.
    - Status indicators: `✓` (complete), `⚠` (template placeholders), `✗` (missing)
 
@@ -231,7 +234,7 @@ Extend this pattern to catch new secret formats.
 - **gh**: GitHub CLI for API access and auth
 - **git**: Repository operations
 - **jq**: JSON parsing in scripts
-- **python3**: Analysis aggregation
+- **python3**: Analysis aggregation (`helpers/requirements.txt` provides `pyaml`)
 
 ### Optional (for `make prep_ai`)
 - **pip-audit**, **safety**: Python dependency scanning
