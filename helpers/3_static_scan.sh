@@ -37,8 +37,14 @@ for d in ${scope}/*; do
 
   if find "$d" -maxdepth 1 -name "Dockerfile*" | grep -q .; then
     if command -v grype >/dev/null 2>&1; then
-      echo "Running Grype on $repo"
-      grype "dir:$d" -o json > analysis/files/"$repo"/grype_audit.json || true
+      target="dir:$d"
+      if [ -n "${GRYPE_IMAGE:-}" ]; then
+        target="${GRYPE_IMAGE}"
+      elif [ -n "${GRYPE_IMAGE_PREFIX:-}" ]; then
+        target="${GRYPE_IMAGE_PREFIX}${repo}"
+      fi
+      echo "Running Grype on $repo ($target)"
+      grype "$target" -o json > analysis/files/"$repo"/grype_audit.json || true
     else
       echo "WARNING: Grype not found; skipping container scan for $repo" >&2
     fi

@@ -120,14 +120,15 @@ def summarize_grype(path):
         "LOW": "Low",
         "UNKNOWN": "Unknown",
     }
+    severity_rank = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, "Unknown": 0}
+    ranked = []
     for m in matches:
         vuln = m.get("vulnerability", {}) if isinstance(m, dict) else {}
         severity = severity_map.get(str(vuln.get("severity", "UNKNOWN")).upper(), "Unknown")
         counts[severity] += 1
-        if len(top) < GRYPE_TOP:
-            vid = vuln.get("id", "UNKNOWN")
-            pkg = m.get("artifact", {}).get("name", "unknown-package")
-            top.append(f"{vid} in {pkg} ({severity})")
+        ranked.append((severity_rank[severity], vuln.get("id", "UNKNOWN"), m.get("artifact", {}).get("name", "unknown-package"), severity))
+    for _, vid, pkg, severity in sorted(ranked, reverse=True)[:GRYPE_TOP]:
+        top.append(f"{vid} in {pkg} ({severity})")
     return f"grype_total={len(matches)}; counts={counts}; top_matches={top}"
 
 def make_one(repo):
