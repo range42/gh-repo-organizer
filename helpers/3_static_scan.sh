@@ -44,7 +44,7 @@ for d in ${scope}/*; do
         target="${GRYPE_IMAGE_PREFIX}${repo}"
       fi
       echo "Running Grype on $repo ($target)"
-      grype "$target" -o json > analysis/files/"$repo"/grype_audit.json 2>> analysis/files/"$repo"/grype_errors.log || true
+      grype "$target" -o json > analysis/files/"$repo"/grype_audit.json 2> analysis/files/"$repo"/grype_errors.log || true
     else
       echo "WARNING: Grype not found; skipping container scan for $repo" >&2
     fi
