@@ -16,6 +16,7 @@ MAX_CHARS = 16000
 README_SNIPPET = 3500
 FILE_LIST_LINES = 200
 BANDIT_TOP = 5
+GRYPE_TOP = 3
 
 # simple sanitizer
 SECRET_RE = re.compile(r'(?i)(aws[_-]?secret[_-]?access[_-]?key|aws[_-]?secret|api[_-]?key|token|password|secret|private_key)\s*[:=]\s*("?)[^\s"]+("? )?')
@@ -103,6 +104,33 @@ def summarize_bandit(path):
         top.append(f"{r.get('filename')}:{r.get('line_number')} {r.get('test_name')} [{r.get('issue_severity')}] - {r.get('issue_text')[:200]}")
     return f"bandit_total={total}; top_issues={top}"
 
+def summarize_grype(path):
+    try:
+        with open(path, 'r') as f:
+            j = json.load(f)
+    except Exception:
+        return ""
+    matches = j.get("matches", []) if isinstance(j, dict) else []
+    counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Unknown": 0}
+    top = []
+    severity_map = {
+        "CRITICAL": "Critical",
+        "HIGH": "High",
+        "MEDIUM": "Medium",
+        "LOW": "Low",
+        "UNKNOWN": "Unknown",
+    }
+    severity_rank = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, "Unknown": 0}
+    ranked = []
+    for m in matches:
+        vuln = m.get("vulnerability", {}) if isinstance(m, dict) else {}
+        severity = severity_map.get(str(vuln.get("severity", "")).upper(), "Unknown")
+        counts[severity] += 1
+        ranked.append((severity_rank[severity], vuln.get("id", "UNKNOWN"), m.get("artifact", {}).get("name", "unknown-package"), severity))
+    for _, vid, pkg, severity in sorted(ranked, reverse=True)[:GRYPE_TOP]:
+        top.append(f"{vid} in {pkg} ({severity})")
+    return f"grype_total={len(matches)}; counts={counts}; top_matches={top}"
+
 def make_one(repo):
     repo_files_dir = os.path.join(FILES_DIR, repo)
     meta_path = os.path.join(META_DIR, f"{repo}.yaml")
@@ -160,6 +188,9 @@ def make_one(repo):
     bandit_path = os.path.join(repo_files_dir,"bandit_report.json")
     if os.path.exists(bandit_path):
         parts.append("--- BANDIT SUMMARY ---\n" + summarize_bandit(bandit_path))
+    grype_path = os.path.join(repo_files_dir,"grype_audit.json")
+    if os.path.exists(grype_path):
+        parts.append("--- CONTAINER VULNERABILITY SUMMARY (grype) ---\n" + summarize_grype(grype_path))
     # CI / workflows
     workfiles = [f for f in os.listdir(repo_files_dir) if f.startswith(".github") or f.endswith(".yml") or f.endswith(".yaml")]
     if workfiles:

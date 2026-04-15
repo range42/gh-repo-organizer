@@ -34,4 +34,19 @@ for d in ${scope}/*; do
     echo "Running Bandit on $repo"
     bandit -r "$d" -f json -o analysis/files/"$repo"/bandit_report.json || true
   fi
+
+  if [ -n "$(find "$d" -maxdepth 1 -name "Dockerfile*" -print -quit)" ]; then
+    if command -v grype >/dev/null 2>&1; then
+      target="dir:$d"
+      if [ -n "${GRYPE_IMAGE:-}" ]; then
+        target="${GRYPE_IMAGE}"
+      elif [ -n "${GRYPE_IMAGE_PREFIX:-}" ]; then
+        target="${GRYPE_IMAGE_PREFIX}${repo}"
+      fi
+      echo "Running Grype on $repo ($target)"
+      grype "$target" -o json > analysis/files/"$repo"/grype_audit.json 2> analysis/files/"$repo"/grype_errors.log || true
+    else
+      echo "WARNING: Grype not found; skipping container scan for $repo" >&2
+    fi
+  fi
 done
