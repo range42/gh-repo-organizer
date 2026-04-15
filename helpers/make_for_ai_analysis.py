@@ -126,7 +126,7 @@ def summarize_grype(path):
         counts[severity] += 1
         if len(top) < GRYPE_TOP:
             vid = vuln.get("id", "UNKNOWN")
-            pkg = (m.get("artifact", {}) or {}).get("name", "unknown-package")
+            pkg = m.get("artifact", {}).get("name", "unknown-package")
             top.append(f"{vid} in {pkg} ({severity})")
     return f"grype_total={len(matches)}; counts={counts}; top_matches={top}"
 
