@@ -16,6 +16,7 @@ MAX_CHARS = 16000
 README_SNIPPET = 3500
 FILE_LIST_LINES = 200
 BANDIT_TOP = 5
+GRYPE_TOP = 3
 
 # simple sanitizer
 SECRET_RE = re.compile(r'(?i)(aws[_-]?secret[_-]?access[_-]?key|aws[_-]?secret|api[_-]?key|token|password|secret|private_key)\s*[:=]\s*("?)[^\s"]+("? )?')
@@ -123,7 +124,7 @@ def summarize_grype(path):
         vuln = m.get("vulnerability", {}) if isinstance(m, dict) else {}
         severity = severity_map.get(str(vuln.get("severity", "UNKNOWN")).upper(), "Unknown")
         counts[severity] += 1
-        if len(top) < 3:
+        if len(top) < GRYPE_TOP:
             vid = vuln.get("id", "UNKNOWN")
             pkg = (m.get("artifact", {}) or {}).get("name", "unknown-package")
             top.append(f"{vid} in {pkg} ({severity})")
