@@ -103,6 +103,26 @@ def summarize_bandit(path):
         top.append(f"{r.get('filename')}:{r.get('line_number')} {r.get('test_name')} [{r.get('issue_severity')}] - {r.get('issue_text')[:200]}")
     return f"bandit_total={total}; top_issues={top}"
 
+def summarize_grype(path):
+    try:
+        j = json.load(open(path, 'r'))
+    except Exception:
+        return ""
+    matches = j.get("matches", []) if isinstance(j, dict) else []
+    counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Unknown": 0}
+    top = []
+    for m in matches:
+        vuln = m.get("vulnerability", {}) if isinstance(m, dict) else {}
+        severity = str(vuln.get("severity", "Unknown")).capitalize()
+        if severity not in counts:
+            severity = "Unknown"
+        counts[severity] += 1
+        if len(top) < 3:
+            vid = vuln.get("id", "UNKNOWN")
+            pkg = (m.get("artifact", {}) or {}).get("name", "unknown-package")
+            top.append(f"{vid} in {pkg} ({severity})")
+    return f"grype_total={len(matches)}; counts={counts}; top_matches={top}"
+
 def make_one(repo):
     repo_files_dir = os.path.join(FILES_DIR, repo)
     meta_path = os.path.join(META_DIR, f"{repo}.yaml")
@@ -160,6 +180,9 @@ def make_one(repo):
     bandit_path = os.path.join(repo_files_dir,"bandit_report.json")
     if os.path.exists(bandit_path):
         parts.append("--- BANDIT SUMMARY ---\n" + summarize_bandit(bandit_path))
+    grype_path = os.path.join(repo_files_dir,"grype_audit.json")
+    if os.path.exists(grype_path):
+        parts.append("--- CONTAINER VULNERABILITY SUMMARY (grype) ---\n" + summarize_grype(grype_path))
     # CI / workflows
     workfiles = [f for f in os.listdir(repo_files_dir) if f.startswith(".github") or f.endswith(".yml") or f.endswith(".yaml")]
     if workfiles:

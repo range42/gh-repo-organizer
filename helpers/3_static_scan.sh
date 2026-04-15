@@ -34,4 +34,13 @@ for d in ${scope}/*; do
     echo "Running Bandit on $repo"
     bandit -r "$d" -f json -o analysis/files/"$repo"/bandit_report.json || true
   fi
+
+  if find "$d" -maxdepth 1 -name "Dockerfile*" | grep -q .; then
+    if command -v grype >/dev/null 2>&1; then
+      echo "Running Grype on $repo"
+      grype "dir:$d" -o json > analysis/files/"$repo"/grype_audit.json || true
+    else
+      echo "WARNING: Grype not found; skipping container scan for $repo" >&2
+    fi
+  fi
 done
