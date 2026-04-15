@@ -39,8 +39,8 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
   exit 1
 }
 
-# Ensure working tree is clean
-if [[ -n "$(git status --porcelain)" ]]; then
+# Ensure working tree is clean (CHANGELOG.md is allowed to be modified)
+if [[ -n "$(git status --porcelain | grep -v ' CHANGELOG.md$')" ]]; then
   echo "ERROR: Uncommitted changes present. Please commit or stash before running."
   exit 1
 fi

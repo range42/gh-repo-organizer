@@ -7,10 +7,8 @@ else
     exit 2
 fi
 
-for d in ${scope}/*; do
-  if [ -e ${scope}/.github ]; then
-    d=${scope}/.github
-  fi
+for d in ${scope}/* ${scope}/.github; do
+  [ -d "$d" ] || continue
   repo=$(basename "$d")
 
   # Create output directory structure

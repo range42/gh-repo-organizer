@@ -8,10 +8,8 @@ else
 fi
 
 mkdir -p analysis/metadata
-for d in ${scope}/*; do
-  if [ -e ${scope}/.github ]; then
-    d=${scope}/.github
-  fi
+for d in ${scope}/* ${scope}/.github; do
+  [ -d "$d" ] || continue
   repo=$(basename "$d")
   last_commit=$(git -C "$d" log -1 --format="%ci" 2>/dev/null || echo "no-commits")
   commit_count=$(git -C "$d" rev-list --count HEAD 2>/dev/null || echo "0")

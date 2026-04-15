@@ -10,10 +10,8 @@ fi
 
 mkdir -p analysis/files
 
-for d in ${scope}/*; do
-  if [ -e ${scope}/.github ]; then
-    d=${scope}/.github
-  fi
+for d in ${scope}/* ${scope}/.github; do
+  [ -d "$d" ] || continue
   repo=$(basename "$d")
   mkdir -p analysis/files/"$repo"
   for f in README.md README.rst docs/* architecture* docker* Dockerfile .github/workflows/* requirements*.txt pyproject.toml package.json go.mod; do

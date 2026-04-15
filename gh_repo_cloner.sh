@@ -145,6 +145,7 @@ read_config() {
     # Set default values if not provided
     PUB_DIR=${PUB_DIR:-"./pub"}
     PRIV_DIR=${PRIV_DIR:-"./priv"}
+    PULL_COOLDOWN=${PULL_COOLDOWN:-5}
     RED=${RED:-'\033[0;31m'}
     GREEN=${GREEN:-'\033[0;32m'}
     YELLOW=${YELLOW:-'\033[1;33m'}
@@ -250,12 +251,26 @@ clone_repositories() {
     PRIVATE_COUNT=0
     UPDATED_COUNT=0
     FAILED_COUNT=0
+    REMOVED_COUNT=0
+    SKIPPED_COUNT=0
+
+    # Snapshot repos that exist locally before we start, so we can detect
+    # repos that have been removed from the remote org
+    local_repos=""
+    for _dir in "$PUB_DIR"/* "$PRIV_DIR"/*; do
+        [[ -d "$_dir" ]] || continue
+        local_repos="$local_repos $(basename "$_dir") "
+    done
+
+    # Track which repo names appear in the remote listing
+    remote_repos=""
 
     # Create temporary file for repo processing
     temp_file=$(mktemp)
     echo "$REPO_JSON" | jq -r '.[] | "\(.name)|\(.isPrivate)|\(.sshUrl)|\(.visibility)"' > "$temp_file"
 
     while IFS='|' read -r repo_name is_private ssh_url visibility; do
+        remote_repos="$remote_repos $repo_name "
         # Determine target directory
         if [[ "$is_private" == "true" ]]; then
             target_dir="$PRIV_DIR"
@@ -269,9 +284,17 @@ clone_repositories() {
 
         # Check if directory already exists
         if [[ -d "$target_dir/$repo_name" ]]; then
+            timestamp_file="$target_dir/.last_pulled_$repo_name"
+            if [[ -f "$timestamp_file" ]] && find "$timestamp_file" -mmin -"$PULL_COOLDOWN" 2>/dev/null | grep -q .; then
+                print_status "⏭ Skipping $repo_name (pulled within the last ${PULL_COOLDOWN}m)"
+                ((SKIPPED_COUNT+=1))
+                continue
+            fi
+
             print_status "Repository $repo_name already exists, updating..."
 
             if git -C "$target_dir/$repo_name" pull --ff-only &> /dev/null; then
+                touch "$timestamp_file"
                 print_success "✓ Updated $repo_name in $target_dir/"
                 ((UPDATED_COUNT+=1))
                 continue
@@ -302,6 +325,7 @@ clone_repositories() {
         fi
 
         if git clone "$clone_url" "$target_dir/$repo_name" &> /dev/null; then
+            touch "$target_dir/.last_pulled_$repo_name"
             print_success "✓ Cloned $repo_name to $target_dir/ (${remote_protocol})"
             if [[ "$is_private" == "true" ]]; then
                 ((PRIVATE_COUNT+=1))
@@ -316,6 +340,7 @@ clone_repositories() {
                 fi
                 print_warning "SSH clone failed; retrying with HTTPS for $repo_name"
                 if git clone "$https_url" "$target_dir/$repo_name" &> /dev/null; then
+                    touch "$target_dir/.last_pulled_$repo_name"
                     print_success "✓ Cloned $repo_name to $target_dir/ (HTTPS fallback)"
                     if [[ "$is_private" == "true" ]]; then
                         ((PRIVATE_COUNT+=1))
@@ -334,6 +359,14 @@ clone_repositories() {
     # Clean up
     rm "$temp_file"
 
+    # Detect local repos that no longer exist in the remote org
+    for repo_name in $local_repos; do
+        if [[ "$remote_repos" != *" $repo_name "* ]]; then
+            print_warning "⚠ '$repo_name' exists locally but was not found in remote org (deleted or access removed?)"
+            ((REMOVED_COUNT+=1))
+        fi
+    done
+
     # Print summary
     print_success "Cloning completed!"
     print_status "Summary:"
@@ -342,8 +375,14 @@ clone_repositories() {
     if [[ $UPDATED_COUNT -gt 0 ]]; then
         print_status "  Repositories updated: $UPDATED_COUNT"
     fi
+    if [[ $SKIPPED_COUNT -gt 0 ]]; then
+        print_status "  Repositories skipped (pulled within ${PULL_COOLDOWN}m): $SKIPPED_COUNT"
+    fi
     if [[ $FAILED_COUNT -gt 0 ]]; then
         print_warning "  Failed actions: $FAILED_COUNT"
+    fi
+    if [[ $REMOVED_COUNT -gt 0 ]]; then
+        print_warning "  Repositories no longer in remote org: $REMOVED_COUNT"
     fi
 }
 
