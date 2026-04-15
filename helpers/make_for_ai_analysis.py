@@ -124,7 +124,7 @@ def summarize_grype(path):
     ranked = []
     for m in matches:
         vuln = m.get("vulnerability", {}) if isinstance(m, dict) else {}
-        severity = severity_map.get(str(vuln.get("severity", "UNKNOWN")).upper(), "Unknown")
+        severity = severity_map.get(str(vuln.get("severity", "")).upper(), "Unknown")
         counts[severity] += 1
         ranked.append((severity_rank[severity], vuln.get("id", "UNKNOWN"), m.get("artifact", {}).get("name", "unknown-package"), severity))
     for _, vid, pkg, severity in sorted(ranked, reverse=True)[:GRYPE_TOP]:
