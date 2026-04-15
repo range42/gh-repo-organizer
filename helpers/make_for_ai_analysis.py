@@ -105,17 +105,23 @@ def summarize_bandit(path):
 
 def summarize_grype(path):
     try:
-        j = json.load(open(path, 'r'))
+        with open(path, 'r') as f:
+            j = json.load(f)
     except Exception:
         return ""
     matches = j.get("matches", []) if isinstance(j, dict) else []
     counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Unknown": 0}
     top = []
+    severity_map = {
+        "CRITICAL": "Critical",
+        "HIGH": "High",
+        "MEDIUM": "Medium",
+        "LOW": "Low",
+        "UNKNOWN": "Unknown",
+    }
     for m in matches:
         vuln = m.get("vulnerability", {}) if isinstance(m, dict) else {}
-        severity = str(vuln.get("severity", "Unknown")).capitalize()
-        if severity not in counts:
-            severity = "Unknown"
+        severity = severity_map.get(str(vuln.get("severity", "UNKNOWN")).upper(), "Unknown")
         counts[severity] += 1
         if len(top) < 3:
             vid = vuln.get("id", "UNKNOWN")
