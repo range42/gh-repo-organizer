@@ -215,6 +215,30 @@ The script goes beyond just checking for the presence of a LICENSE file - it als
 - **⚠ LICENSE (contains template placeholders)** - File present but needs customization
 - **✗ LICENSE** - File missing entirely
 
+## Security Scanning
+
+When you run `make prep_ai`, the pipeline executes `./helpers/3_static_scan.sh` for both `pub/` and `priv/` repositories and performs file-based security scan detection automatically.
+
+### Scanner Detection Rules
+
+| Trigger | Scanner | Output File |
+|---------|---------|-------------|
+| `requirements.txt` exists | `pip-audit -r requirements.txt --format json` | `analysis/files/<repo>/pip_audit.json` |
+| `requirements.txt` exists | `safety check --file=requirements.txt --json` | `analysis/files/<repo>/safety.json` |
+| `package.json` exists **and** one of `package-lock.json`, `yarn.lock`, or `pnpm-lock.yaml` exists | `npm audit --json` | `analysis/files/<repo>/npm_audit.json` |
+| Any `*.py` file exists in the repo | `bandit -r <repo> -f json` | `analysis/files/<repo>/bandit_report.json` |
+
+### Behavior and Output
+
+- Scan results are written as JSON files under `analysis/files/<repo>/`.
+- Scans are non-blocking in the current implementation (`|| true`): a failing scanner does not stop the overall `prep_ai` pipeline.
+- If a repository has `package.json` but no lock file, the tool writes an error JSON payload to `npm_audit.json` and prints a warning to stderr.
+
+### Configuration / Opt-out
+
+- There are currently no dedicated scan-level CLI flags or `config.env` toggles to enable/disable individual scanners.
+- To skip these scans, run workflows other than `make prep_ai`, or modify `helpers/3_static_scan.sh` for custom behavior.
+
 ## Example Output
 
 ### Repository Cloning
