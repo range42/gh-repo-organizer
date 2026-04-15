@@ -41,6 +41,9 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
+# Install Python dependencies for analysis helpers
+pip install -r helpers/requirements.txt
+
 # Create config from template
 cp config.env.example config.env
 # Edit config.env to set ORG variable
