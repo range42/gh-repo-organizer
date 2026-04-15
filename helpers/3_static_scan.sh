@@ -35,7 +35,7 @@ for d in ${scope}/*; do
     bandit -r "$d" -f json -o analysis/files/"$repo"/bandit_report.json || true
   fi
 
-  if find "$d" -maxdepth 1 -name "Dockerfile*" | grep -q .; then
+  if [ -n "$(find "$d" -maxdepth 1 -name "Dockerfile*" -print -quit)" ]; then
     if command -v grype >/dev/null 2>&1; then
       target="dir:$d"
       if [ -n "${GRYPE_IMAGE:-}" ]; then
