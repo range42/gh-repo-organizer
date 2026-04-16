@@ -1,4 +1,7 @@
+#!/bin/bash
 # extract_files.sh
+set -e
+
 if [ "$1" == "pub" ]; then
     scope="$1"
 elif [ "$1" == "priv" ]; then
@@ -10,7 +13,7 @@ fi
 
 mkdir -p analysis/files
 
-for d in ${scope}/* ${scope}/.github; do
+for d in "${scope}"/* "${scope}"/.github; do
   [ -d "$d" ] || continue
   repo=$(basename "$d")
   mkdir -p analysis/files/"$repo"

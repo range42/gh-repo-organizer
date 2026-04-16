@@ -4,7 +4,12 @@ make_for_ai_contexts.py
 Reads analysis/files/* and analysis/metadata/*.yaml and creates analysis/for_ai/<repo>_context.txt
 """
 
-import os, json, yaml, re, datetime, textwrap
+import os
+import json
+import re
+import datetime
+
+import yaml
 
 BASE = "analysis"
 FILES_DIR = os.path.join(BASE, "files")
@@ -18,14 +23,21 @@ FILE_LIST_LINES = 200
 BANDIT_TOP = 5
 GRYPE_TOP = 3
 
-# simple sanitizer
-SECRET_RE = re.compile(r'(?i)(aws[_-]?secret[_-]?access[_-]?key|aws[_-]?secret|api[_-]?key|token|password|secret|private_key)\s*[:=]\s*("?)[^\s"]+("? )?')
+# Matches key=value, key: value, "key": "value", and key: 'value' formats
+SECRET_RE = re.compile(
+    r'(?i)'
+    r'(aws[_-]?secret[_-]?access[_-]?key|aws[_-]?secret|api[_-]?key'
+    r'|token|password|secret|private_key)'
+    r'\s*(?:[:=]|"?\s*:\s*")\s*'
+    r'["\']?[^\s"\']+["\']?'
+)
 
-def redact(text):
+def redact(text: str) -> tuple[str, list[str]]:
     redactions = []
-    def _repl(m):
+    def _repl(m: re.Match) -> str:
         redactions.append(m.group(0))
-        return m.group(0).split('=')[0] + "= [REDACTED]"
+        key_part = re.split(r'[:=]', m.group(0), maxsplit=1)[0]
+        return key_part + ": [REDACTED]"
     out = SECRET_RE.sub(_repl, text)
     return out, redactions
 
@@ -41,7 +53,8 @@ def safe_read(path, max_chars=None):
 
 def summarize_pip_audit(path):
     try:
-        j = json.load(open(path, 'r'))
+        with open(path, 'r') as f:
+            j = json.load(f)
     except Exception:
         return ""
     # flexible shape
@@ -68,7 +81,8 @@ def summarize_pip_audit(path):
 
 def summarize_npm_audit(path):
     try:
-        j = json.load(open(path, 'r'))
+        with open(path, 'r') as f:
+            j = json.load(f)
     except Exception:
         return ""
     # npm audit v2 format includes metadata.vulnerabilities counts
@@ -88,7 +102,8 @@ def summarize_npm_audit(path):
 
 def summarize_bandit(path):
     try:
-        j = json.load(open(path, 'r'))
+        with open(path, 'r') as f:
+            j = json.load(f)
     except Exception:
         return ""
     results = j.get("results", [])
@@ -131,79 +146,71 @@ def summarize_grype(path):
         top.append(f"{vid} in {pkg} ({severity})")
     return f"grype_total={len(matches)}; counts={counts}; top_matches={top}"
 
-def make_one(repo):
+def _collect_scan_parts(repo_files_dir: str) -> list[str]:
+    """Build scan-summary sections for a single repo."""
+    parts = []
+    pip_path = os.path.join(repo_files_dir, "pip_audit.json")
+    if os.path.exists(pip_path):
+        parts.append("--- DEPENDENCY / SCA SCANS SUMMARY (pip_audit) ---\n" + summarize_pip_audit(pip_path))
+    safety_path = os.path.join(repo_files_dir, "safety.json")
+    if os.path.exists(safety_path):
+        parts.append("--- DEPENDENCY / SCA SCANS SUMMARY (safety) ---\n" + summarize_pip_audit(safety_path))
+    npm_path = os.path.join(repo_files_dir, "npm_audit.json")
+    if os.path.exists(npm_path):
+        parts.append("--- DEPENDENCY / SCA SCANS SUMMARY (npm_audit) ---\n" + summarize_npm_audit(npm_path))
+    bandit_path = os.path.join(repo_files_dir, "bandit_report.json")
+    if os.path.exists(bandit_path):
+        parts.append("--- BANDIT SUMMARY ---\n" + summarize_bandit(bandit_path))
+    grype_path = os.path.join(repo_files_dir, "grype_audit.json")
+    if os.path.exists(grype_path):
+        parts.append("--- CONTAINER VULNERABILITY SUMMARY (grype) ---\n" + summarize_grype(grype_path))
+    workfiles = [f for f in os.listdir(repo_files_dir) if f.startswith(".github") or f.endswith(".yml") or f.endswith(".yaml")]
+    if workfiles:
+        parts.append("--- CI / WORKFLOWS ---\n" + "\n".join(workfiles))
+    return parts
+
+
+def make_one(repo: str) -> None:
     repo_files_dir = os.path.join(FILES_DIR, repo)
     meta_path = os.path.join(META_DIR, f"{repo}.yaml")
     out_path = os.path.join(OUT_DIR, f"{repo}_context.txt")
     parts = []
     # header
-    header = {"repo_name": repo}
+    header: dict = {"repo_name": repo}
     if os.path.exists(meta_path):
         try:
-            with open(meta_path,'r') as f:
+            with open(meta_path, 'r') as f:
                 my = yaml.safe_load(f)
-            # select up to 8 useful keys
-            keep = {k: my.get(k) for k in ("last_commit","commits","main_branch","owner","description") if k in my}
+            keep = {k: my.get(k) for k in ("last_commit", "commits", "main_branch", "owner", "description") if k in my}
             header.update(keep)
         except Exception:
             pass
     parts.append("--- REPO HEADER ---\n" + yaml.safe_dump(header, default_flow_style=False))
-    # one-line summary (autogen)
-    one_line = f"{repo} — files: {len(os.listdir(repo_files_dir)) if os.path.isdir(repo_files_dir) else 0}; generated: {datetime.datetime.now(datetime.UTC).isoformat()}Z"
+    file_count = len(os.listdir(repo_files_dir)) if os.path.isdir(repo_files_dir) else 0
+    one_line = f"{repo} — files: {file_count}; generated: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z"
     parts.append("--- ONE-LINE SUMMARY (AUTOGEN) ---\n" + one_line)
     # README
-    readme_path = None
-    for possible in ("README.md","README.rst","readme.md"):
-        p = os.path.join(repo_files_dir, possible)
-        if os.path.exists(p):
-            readme_path = p
-            break
+    readme_path = next(
+        (os.path.join(repo_files_dir, p) for p in ("README.md", "README.rst", "readme.md") if os.path.exists(os.path.join(repo_files_dir, p))),
+        None,
+    )
     if readme_path:
-        rd = safe_read(readme_path, README_SNIPPET)
-        rd_s, red = redact(rd)
+        rd_s, _ = redact(safe_read(readme_path, README_SNIPPET))
         parts.append(f"--- README (first {README_SNIPPET} chars) ---\n{rd_s}")
     else:
         parts.append("--- README (first 3500 chars) ---\n[NO README FOUND]")
-    # file_list
-    fl = safe_read(os.path.join(repo_files_dir,"file_list.txt"))
+    # file list
+    fl = safe_read(os.path.join(repo_files_dir, "file_list.txt"))
     if fl:
-        lines = fl.splitlines()[:FILE_LIST_LINES]
-        parts.append(f"--- FILE LIST (first {FILE_LIST_LINES} lines) ---\n" + "\n".join(lines))
-    # important files present
-    found = []
-    for fn in os.listdir(repo_files_dir):
-        found.append(fn)
-    parts.append("--- IMPORTANT FILES FOUND ---\n" + "\n".join(sorted(found)[:50]))
-    # dependency scan summaries
-    pip_path = os.path.join(repo_files_dir,"pip_audit.json")
-    if os.path.exists(pip_path):
-        parts.append("--- DEPENDENCY / SCA SCANS SUMMARY (pip_audit) ---\n" + summarize_pip_audit(pip_path))
-    safety_path = os.path.join(repo_files_dir,"safety.json")
-    if os.path.exists(safety_path):
-        parts.append("--- DEPENDENCY / SCA SCANS SUMMARY (safety) ---\n" + summarize_pip_audit(safety_path))
-    npm_path = os.path.join(repo_files_dir,"npm_audit.json")
-    if os.path.exists(npm_path):
-        parts.append("--- DEPENDENCY / SCA SCANS SUMMARY (npm_audit) ---\n" + summarize_npm_audit(npm_path))
-    # bandit
-    bandit_path = os.path.join(repo_files_dir,"bandit_report.json")
-    if os.path.exists(bandit_path):
-        parts.append("--- BANDIT SUMMARY ---\n" + summarize_bandit(bandit_path))
-    grype_path = os.path.join(repo_files_dir,"grype_audit.json")
-    if os.path.exists(grype_path):
-        parts.append("--- CONTAINER VULNERABILITY SUMMARY (grype) ---\n" + summarize_grype(grype_path))
-    # CI / workflows
-    workfiles = [f for f in os.listdir(repo_files_dir) if f.startswith(".github") or f.endswith(".yml") or f.endswith(".yaml")]
-    if workfiles:
-        parts.append("--- CI / WORKFLOWS ---\n" + "\n".join(workfiles))
-    # sanitization log (minimal)
-    parts.append("--- SANITIZATION LOG ---\n" + "Redaction performed for common secret patterns (see script).")
-    # footer
-    parts.append("--- CONTEXT FOOTER ---\nGenerated at: " + datetime.datetime.now(datetime.UTC).isoformat() + "Z\nEstimated_chars_limit=" + str(MAX_CHARS))
+        parts.append(f"--- FILE LIST (first {FILE_LIST_LINES} lines) ---\n" + "\n".join(fl.splitlines()[:FILE_LIST_LINES]))
+    parts.append("--- IMPORTANT FILES FOUND ---\n" + "\n".join(sorted(os.listdir(repo_files_dir))[:50]))
+    parts.extend(_collect_scan_parts(repo_files_dir))
+    parts.append("--- SANITIZATION LOG ---\nRedaction performed for common secret patterns (see script).")
+    parts.append("--- CONTEXT FOOTER ---\nGenerated at: " + datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z\nEstimated_chars_limit=" + str(MAX_CHARS))
     content = "\n\n".join(parts)
-    # final truncation
     if len(content) > MAX_CHARS:
-        content = content[:MAX_CHARS-200] + "\n\n...[TRUNCATED for token budget]"
-    with open(out_path,'w',encoding='utf-8') as f:
+        content = content[:MAX_CHARS - 200] + "\n\n...[TRUNCATED for token budget]"
+    with open(out_path, 'w', encoding='utf-8') as f:
         f.write(content)
     print("Wrote", out_path)
 

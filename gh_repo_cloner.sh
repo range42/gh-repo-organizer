@@ -267,6 +267,7 @@ clone_repositories() {
 
     # Create temporary file for repo processing
     temp_file=$(mktemp)
+    trap 'rm -f "$temp_file"' EXIT
     echo "$REPO_JSON" | jq -r '.[] | "\(.name)|\(.isPrivate)|\(.sshUrl)|\(.visibility)"' > "$temp_file"
 
     while IFS='|' read -r repo_name is_private ssh_url visibility; do
@@ -335,7 +336,7 @@ clone_repositories() {
         else
             # Retry with HTTPS if the SSH clone fails
             if [[ "$remote_protocol" == "SSH" ]]; then
-                if [[ -d "$target_dir/$repo_name" && ! -d "$target_dir/$repo_name/.git" ]]; then
+                if [[ -n "$target_dir" && -n "$repo_name" && -d "$target_dir/$repo_name" && ! -d "$target_dir/$repo_name/.git" ]]; then
                     rm -rf "$target_dir/$repo_name"
                 fi
                 print_warning "SSH clone failed; retrying with HTTPS for $repo_name"
