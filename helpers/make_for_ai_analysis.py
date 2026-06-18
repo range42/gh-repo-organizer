@@ -4,6 +4,8 @@ make_for_ai_contexts.py
 Reads analysis/files/* and analysis/metadata/*.yaml and creates analysis/for_ai/<repo>_context.txt
 """
 
+from __future__ import annotations
+
 import os
 import json
 import re
